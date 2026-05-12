@@ -98,6 +98,7 @@ Grafana Dashboard
 - **Minikube** installed and running
 - **kubectl** and **helm** installed
 - **Docker** - Required for building the audit exporter image
+- **jq** - JSON processor for cleanup scripts (`brew install jq` on macOS)
 - **curl**, **base64**, **openssl** - Standard CLI tools (usually pre-installed)
 - **VAULT_TOKEN** environment variable set
 

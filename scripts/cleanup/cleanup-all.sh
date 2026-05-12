@@ -83,6 +83,18 @@ if minikube status | grep -q "host: Running"; then
     kubectl delete namespace postgres --ignore-not-found=true 2>/dev/null && echo "✓ postgres namespace deleted" || echo "  postgres namespace not found"
     kubectl delete namespace vault-secrets-operator-system --ignore-not-found=true 2>/dev/null && echo "✓ vault-secrets-operator-system namespace deleted" || echo "  vault-secrets-operator-system namespace not found"
     
+    # Wait a moment for namespaces to start terminating
+    sleep 3
+    
+    # Force delete any stuck namespaces (common with operator namespaces)
+    echo -e "${YELLOW}Checking for stuck namespaces...${NC}"
+    for ns in vault-secrets-operator-system db-demo pki-demo gitlab-demo audit-monitoring postgres; do
+        if kubectl get namespace $ns 2>/dev/null | grep -q "Terminating"; then
+            echo -e "${YELLOW}Force deleting stuck namespace: $ns${NC}"
+            kubectl get namespace $ns -o json | jq '.spec.finalizers = []' | kubectl replace --raw /api/v1/namespaces/$ns/finalize -f - 2>/dev/null && echo "✓ $ns force deleted" || echo "  $ns already gone"
+        fi
+    done
+    
     # Clean up cluster-level resources
     echo -e "${YELLOW}Cleaning cluster-level resources...${NC}"
     kubectl delete clusterrolebinding vault-auth-reviewer-binding --ignore-not-found=true 2>/dev/null && echo "✓ ClusterRoleBinding deleted" || echo "  ClusterRoleBinding not found"
