@@ -72,12 +72,31 @@ vault audit disable file 2>/dev/null && echo "✓ File audit device disabled" ||
 
 echo -e "\n${GREEN}✓ All Vault configuration cleaned${NC}"
 
-# Now nuke the entire Minikube cluster (removes all namespaces, pods, etc. in one go)
-echo -e "\n${GREEN}Destroying Minikube cluster (nuking everything)...${NC}"
-minikube delete
+# Clean up demo namespaces (safer - preserves other user resources in cluster)
+echo -e "\n${GREEN}Cleaning up demo namespaces...${NC}"
+if minikube status | grep -q "host: Running"; then
+    echo -e "${YELLOW}Deleting demo namespaces...${NC}"
+    kubectl delete namespace db-demo --ignore-not-found=true 2>/dev/null && echo "✓ db-demo namespace deleted" || echo "  db-demo namespace not found"
+    kubectl delete namespace pki-demo --ignore-not-found=true 2>/dev/null && echo "✓ pki-demo namespace deleted" || echo "  pki-demo namespace not found"
+    kubectl delete namespace gitlab-demo --ignore-not-found=true 2>/dev/null && echo "✓ gitlab-demo namespace deleted" || echo "  gitlab-demo namespace not found"
+    kubectl delete namespace audit-monitoring --ignore-not-found=true 2>/dev/null && echo "✓ audit-monitoring namespace deleted" || echo "  audit-monitoring namespace not found"
+    kubectl delete namespace postgres --ignore-not-found=true 2>/dev/null && echo "✓ postgres namespace deleted" || echo "  postgres namespace not found"
+    kubectl delete namespace vault-secrets-operator-system --ignore-not-found=true 2>/dev/null && echo "✓ vault-secrets-operator-system namespace deleted" || echo "  vault-secrets-operator-system namespace not found"
+    
+    # Clean up cluster-level resources
+    echo -e "${YELLOW}Cleaning cluster-level resources...${NC}"
+    kubectl delete clusterrolebinding vault-auth-reviewer-binding --ignore-not-found=true 2>/dev/null && echo "✓ ClusterRoleBinding deleted" || echo "  ClusterRoleBinding not found"
+    
+    echo -e "${GREEN}✓ All demo namespaces and resources cleaned${NC}"
+else
+    echo -e "${YELLOW}Minikube is not running, skipping namespace cleanup${NC}"
+fi
 
-echo -e "\n${GREEN}=== Full cleanup complete ===${NC}"
+echo -e "\n${GREEN}=== Cleanup complete ===${NC}"
 echo "✓ Vault demo configuration removed"
-echo "✓ Minikube cluster deleted (all Kubernetes resources removed)"
+echo "✓ Demo namespaces and resources deleted"
+echo ""
+echo -e "${YELLOW}Note: Minikube cluster preserved (only demo resources removed)${NC}"
+echo -e "${YELLOW}To completely remove the cluster, run: minikube delete${NC}"
 
 # Made with Bob

@@ -167,8 +167,11 @@ It usually restores all functionality after a suspend/resume event.
 
 ### Complete Cleanup
 ```bash
-# Clean everything added by the demos and delete the Minikube cluster
+# Clean all Vault configuration and demo namespaces (preserves Minikube cluster)
 make clean-all-local
+
+# To completely remove the Minikube cluster (optional):
+minikube delete
 ```
 
 ### Redeploy Individual Demos
