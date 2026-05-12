@@ -1,0 +1,22 @@
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultAuth
+metadata:
+  name: pki-auth
+  namespace: pki-demo
+spec:
+  namespace: root
+  method: kubernetes
+  mount: vso-demo-auth
+  kubernetes:
+    role: vso-demo-pki-cert-issuer
+    serviceAccount: pki-demo-app
+    audiences:
+      - vault
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pki-demo-app
+  namespace: pki-demo
+
+# Made with Bob

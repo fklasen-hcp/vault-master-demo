@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vault-audit-exporter
+  namespace: audit-monitoring
+  labels:
+    app: vault-audit-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vault-audit-exporter
+  template:
+    metadata:
+      labels:
+        app: vault-audit-exporter
+    spec:
+      containers:
+      - name: exporter
+        image: vault-audit-exporter:latest
+        imagePullPolicy: Never  # Use local image in minikube
+        ports:
+        - containerPort: 9091
+          name: metrics
+          protocol: TCP
+        env:
+        - name: AUDIT_LOG_PATH
+          value: "/host-home/audit.log"
+        - name: EXPORTER_PORT
+          value: "9091"
+        - name: LOG_LEVEL
+          value: "INFO"
+        volumeMounts:
+        - name: audit-log
+          mountPath: /host-home
+          readOnly: true
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: 9091
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: 9091
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+      volumes:
+      - name: audit-log
+        hostPath:
+          path: /host-home
+          type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault-audit-exporter
+  namespace: audit-monitoring
+  labels:
+    app: vault-audit-exporter
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9091
+    targetPort: 9091
+    protocol: TCP
+    name: metrics
+  selector:
+    app: vault-audit-exporter
+
+# Made with Bob

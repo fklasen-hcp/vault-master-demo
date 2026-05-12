@@ -1,0 +1,18 @@
+stages:
+  - test
+
+test-vault-secrets:
+  stage: test
+  image: alpine:latest
+  script:
+    - echo "=== Vault Secrets Demo via VSO ==="
+    - echo ""
+    - echo "Mounted files in /vault/secrets:"
+    - ls -la /vault/secrets
+    - echo ""
+    - 'printf "Username from Vault: %s\n" "$(cat /vault/secrets/username)"'
+    - 'printf "Password from Vault: %s\n" "$(cat /vault/secrets/password)"'
+    - echo ""
+    - echo "Re-run after updating the secret in Vault to show changed values."
+
+# Made with Bob

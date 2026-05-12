@@ -1,0 +1,418 @@
+{
+  "title": "Vault Audit Monitoring",
+    "tags": ["vault", "audit", "security"],
+    "timezone": "browser",
+    "schemaVersion": 38,
+    "version": 1,
+    "refresh": "5s",
+    "time": {
+      "from": "now-15m",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Total Requests (Last 15min)",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 8, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "sum(increase(vault_audit_requests_total[15m]))",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value",
+          "textMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "decimals": 0
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Active Operations (req/min)",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 8, "x": 8, "y": 0},
+        "targets": [
+          {
+            "expr": "sum(rate(vault_audit_requests_total[1m]) * 60)",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value",
+          "textMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqpm",
+            "decimals": 1
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Unique Clients",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 8, "x": 16, "y": 0},
+        "targets": [
+          {
+            "expr": "count(count by (display_name) (vault_audit_auth_requests_total))",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "none",
+          "colorMode": "value",
+          "textMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "decimals": 0
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Requests Over Time",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+        "targets": [
+          {
+            "expr": "sum by (operation) (rate(vault_audit_requests_total[1m]))",
+            "refId": "A",
+            "legendFormat": "{{operation}}"
+          }
+        ],
+        "options": {
+          "tooltip": {"mode": "multi"},
+          "legend": {"displayMode": "list", "placement": "bottom"}
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "smooth",
+              "fillOpacity": 20,
+              "stacking": {"mode": "normal"}
+            },
+            "unit": "reqps"
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "Requests by Mount Type",
+        "type": "piechart",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+        "targets": [
+          {
+            "expr": "sum by (mount_type) (increase(vault_audit_requests_total[15m]))",
+            "refId": "A",
+            "legendFormat": "{{mount_type}}"
+          }
+        ],
+        "options": {
+          "legend": {"displayMode": "table", "placement": "right", "values": ["value", "percent"]},
+          "pieType": "donut"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "Operations by Type",
+        "type": "bargauge",
+        "gridPos": {"h": 6, "w": 12, "x": 0, "y": 12},
+        "targets": [
+          {
+            "expr": "sum by (operation) (increase(vault_audit_requests_total[15m]))",
+            "refId": "A",
+            "legendFormat": "{{operation}}"
+          }
+        ],
+        "options": {
+          "orientation": "horizontal",
+          "displayMode": "gradient",
+          "showUnfilled": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "min": 0
+          }
+        }
+      },
+      {
+        "id": 8,
+        "title": "Top 10 Paths",
+        "type": "table",
+        "gridPos": {"h": 6, "w": 12, "x": 12, "y": 12},
+        "targets": [
+          {
+            "expr": "topk(10, sum by (path) (increase(vault_audit_requests_total[15m])))",
+            "refId": "A",
+            "format": "table",
+            "instant": true
+          }
+        ],
+        "options": {
+          "showHeader": true,
+          "sortBy": [{"displayName": "Value", "desc": true}]
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"align": "auto"}
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byName", "options": "path"},
+              "properties": [{"id": "custom.width", "value": 400}]
+            }
+          ]
+        },
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {"Time": true},
+              "renameByName": {"path": "Path", "Value": "Request Count"}
+            }
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Authentication Activity",
+        "type": "timeseries",
+        "gridPos": {"h": 6, "w": 12, "x": 0, "y": 18},
+        "targets": [
+          {
+            "expr": "sum by (auth_method) (rate(vault_audit_auth_requests_total{auth_method!=\"unknown\"}[1m]))",
+            "refId": "A",
+            "legendFormat": "{{auth_method}}"
+          }
+        ],
+        "options": {
+          "tooltip": {"mode": "multi"},
+          "legend": {"displayMode": "list", "placement": "bottom"}
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "smooth",
+              "fillOpacity": 10
+            },
+            "unit": "reqps"
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byName", "options": "root"},
+              "properties": [
+                {
+                  "id": "color",
+                  "value": {"mode": "fixed", "fixedColor": "red"}
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": 10,
+        "title": "Errors and Warnings",
+        "type": "timeseries",
+        "gridPos": {"h": 6, "w": 12, "x": 12, "y": 18},
+        "targets": [
+          {
+            "expr": "rate(vault_audit_errors_total[1m])",
+            "refId": "A",
+            "legendFormat": "Errors"
+          },
+          {
+            "expr": "rate(vault_audit_warnings_total[1m])",
+            "refId": "B",
+            "legendFormat": "Warnings"
+          }
+        ],
+        "options": {
+          "tooltip": {"mode": "multi"},
+          "legend": {"displayMode": "list", "placement": "bottom"}
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "smooth",
+              "fillOpacity": 10
+            },
+            "unit": "reqps"
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byName", "options": "Errors"},
+              "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "red"}}]
+            },
+            {
+              "matcher": {"id": "byName", "options": "Warnings"},
+              "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "yellow"}}]
+            }
+          ]
+        }
+      },
+      {
+        "id": 11,
+        "title": "KV Operations",
+        "type": "timeseries",
+        "gridPos": {"h": 6, "w": 8, "x": 0, "y": 24},
+        "targets": [
+          {
+            "expr": "sum by (operation) (rate(vault_audit_mount_requests_total{mount_type=\"kv\"}[1m]))",
+            "refId": "A",
+            "legendFormat": "{{operation}}"
+          }
+        ],
+        "options": {
+          "tooltip": {"mode": "multi"},
+          "legend": {"displayMode": "list", "placement": "bottom"}
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "smooth",
+              "fillOpacity": 10
+            },
+            "unit": "reqps"
+          }
+        }
+      },
+      {
+        "id": 12,
+        "title": "Database Credentials",
+        "type": "timeseries",
+        "gridPos": {"h": 6, "w": 8, "x": 8, "y": 24},
+        "targets": [
+          {
+            "expr": "sum by (operation) (rate(vault_audit_mount_requests_total{mount_type=\"database\"}[1m]))",
+            "refId": "A",
+            "legendFormat": "{{operation}}"
+          }
+        ],
+        "options": {
+          "tooltip": {"mode": "multi"},
+          "legend": {"displayMode": "list", "placement": "bottom"}
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "smooth",
+              "fillOpacity": 10
+            },
+            "unit": "reqps"
+          }
+        }
+      },
+      {
+        "id": 13,
+        "title": "PKI Certificates",
+        "type": "timeseries",
+        "gridPos": {"h": 6, "w": 8, "x": 16, "y": 24},
+        "targets": [
+          {
+            "expr": "sum by (operation) (rate(vault_audit_pki_operations_total[1m]))",
+            "refId": "A",
+            "legendFormat": "{{operation}}"
+          }
+        ],
+        "options": {
+          "tooltip": {"mode": "multi"},
+          "legend": {"displayMode": "list", "placement": "bottom"}
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "smooth",
+              "fillOpacity": 10
+            },
+            "unit": "reqps"
+          }
+        }
+      },
+      {
+        "id": 14,
+        "title": "Request Latency (p50, p95, p99)",
+        "type": "timeseries",
+        "gridPos": {"h": 6, "w": 12, "x": 0, "y": 30},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(vault_audit_request_duration_seconds_bucket[5m])) by (le))",
+            "refId": "A",
+            "legendFormat": "p50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(vault_audit_request_duration_seconds_bucket[5m])) by (le))",
+            "refId": "B",
+            "legendFormat": "p95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(vault_audit_request_duration_seconds_bucket[5m])) by (le))",
+            "refId": "C",
+            "legendFormat": "p99"
+          }
+        ],
+        "options": {
+          "tooltip": {"mode": "multi"},
+          "legend": {"displayMode": "list", "placement": "bottom"}
+        },
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "smooth",
+              "fillOpacity": 0
+            },
+            "unit": "s",
+            "min": 0
+          }
+        }
+      },
+      {
+        "id": 15,
+        "title": "Exporter Health",
+        "type": "stat",
+        "gridPos": {"h": 6, "w": 12, "x": 12, "y": 30},
+        "targets": [
+          {
+            "expr": "rate(vault_audit_exporter_lines_processed_total[1m]) * 60",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "lpm",
+            "decimals": 1,
+            "displayName": "Lines Processed/min"
+          }
+        }
+      }
+    ]
+}

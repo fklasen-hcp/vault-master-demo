@@ -1,0 +1,300 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pki-demo-secret-reader
+  namespace: pki-demo
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["pki-demo-tls"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pki-demo-secret-reader
+  namespace: pki-demo
+subjects:
+- kind: ServiceAccount
+  name: pki-demo-app
+  namespace: pki-demo
+roleRef:
+  kind: Role
+  name: pki-demo-secret-reader
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pki-demo-app
+  namespace: pki-demo
+  labels:
+    app: pki-demo
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: pki-demo
+  template:
+    metadata:
+      labels:
+        app: pki-demo
+      annotations:
+        vault.hashicorp.com/agent-inject: "false"
+    spec:
+      serviceAccountName: pki-demo-app
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 443
+          name: https
+          protocol: TCP
+        - containerPort: 80
+          name: http
+          protocol: TCP
+        volumeMounts:
+        - name: tls-certs
+          mountPath: /etc/nginx/ssl
+          readOnly: true
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d
+        - name: html
+          mountPath: /usr/share/nginx/html
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "50m"
+          limits:
+            memory: "64Mi"
+            cpu: "100m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+            scheme: HTTP
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+            scheme: HTTP
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          failureThreshold: 3
+      - name: cert-monitor
+        image: bitnami/kubectl:latest
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          while true; do
+            # Get certificate directly from Kubernetes secret (always up-to-date)
+            CERT=$(kubectl get secret pki-demo-tls -n pki-demo -o jsonpath='{.data.certificate}' | base64 -d)
+            if [ ! -z "$CERT" ]; then
+              cat > /usr/share/nginx/html/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>Vault PKI Auto-Renewal Demo</title>
+              <style>
+                  body {
+                      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                      max-width: 1000px;
+                      margin: 50px auto;
+                      padding: 30px;
+                      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                  }
+                  .container {
+                      background: white;
+                      border-radius: 15px;
+                      padding: 40px;
+                      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                  }
+                  h1 {
+                      color: #333;
+                      text-align: center;
+                      margin-bottom: 30px;
+                  }
+                  .status {
+                      font-size: 28px;
+                      font-weight: bold;
+                      text-align: center;
+                      padding: 25px;
+                      margin: 25px 0;
+                      border-radius: 10px;
+                      background: #d4edda;
+                      color: #155724;
+                      border: 3px solid #c3e6cb;
+                  }
+                  .info-box {
+                      background: #f8f9fa;
+                      border-left: 5px solid #667eea;
+                      padding: 20px;
+                      margin: 20px 0;
+                      border-radius: 8px;
+                  }
+                  .label {
+                      font-weight: bold;
+                      color: #667eea;
+                      font-size: 16px;
+                      margin-bottom: 8px;
+                  }
+                  .value {
+                      color: #333;
+                      font-family: 'Courier New', monospace;
+                      font-size: 14px;
+                      word-break: break-all;
+                      background: white;
+                      padding: 10px;
+                      border-radius: 5px;
+                  }
+                  .refresh-btn {
+                      display: block;
+                      margin: 30px auto;
+                      padding: 15px 40px;
+                      font-size: 18px;
+                      font-weight: bold;
+                      color: white;
+                      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                      border: none;
+                      border-radius: 10px;
+                      cursor: pointer;
+                      box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+                      transition: transform 0.2s, box-shadow 0.2s;
+                  }
+                  .refresh-btn:hover {
+                      transform: translateY(-2px);
+                      box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+                  }
+                  .refresh-btn:active {
+                      transform: translateY(0);
+                  }
+                  .footer {
+                      text-align: center;
+                      color: #666;
+                      margin-top: 40px;
+                      padding-top: 20px;
+                      border-top: 2px solid #eee;
+                  }
+              </style>
+          </head>
+          <body>
+              <div class="container">
+                  <h1>Vault PKI Certificate Auto-Renewal Demo</h1>
+          EOF
+              
+              # Add certificate details from the secret we just fetched
+              echo '<div class="info-box"><div class="label">Certificate Subject:</div><div class="value">' >> /usr/share/nginx/html/index.html
+              echo "$CERT" | openssl x509 -noout -subject 2>/dev/null | sed 's/subject=//' >> /usr/share/nginx/html/index.html
+              echo '</div></div>' >> /usr/share/nginx/html/index.html
+              
+              echo '<div class="info-box"><div class="label">Serial Number:</div><div class="value">' >> /usr/share/nginx/html/index.html
+              echo "$CERT" | openssl x509 -noout -serial 2>/dev/null | sed 's/serial=//' >> /usr/share/nginx/html/index.html
+              echo '</div></div>' >> /usr/share/nginx/html/index.html
+              
+              echo '<div class="info-box"><div class="label">Valid From:</div><div class="value">' >> /usr/share/nginx/html/index.html
+              echo "$CERT" | openssl x509 -noout -startdate 2>/dev/null | sed 's/notBefore=//' >> /usr/share/nginx/html/index.html
+              echo '</div></div>' >> /usr/share/nginx/html/index.html
+              
+              echo '<div class="info-box"><div class="label">Valid Until:</div><div class="value">' >> /usr/share/nginx/html/index.html
+              echo "$CERT" | openssl x509 -noout -enddate 2>/dev/null | sed 's/notAfter=//' >> /usr/share/nginx/html/index.html
+              echo '</div></div>' >> /usr/share/nginx/html/index.html
+              
+              echo '<div class="info-box"><div class="label">Issuer:</div><div class="value">' >> /usr/share/nginx/html/index.html
+              echo "$CERT" | openssl x509 -noout -issuer 2>/dev/null | sed 's/issuer=//' >> /usr/share/nginx/html/index.html
+              echo '</div></div>' >> /usr/share/nginx/html/index.html
+              
+              echo '<div class="info-box"><div class="label">Pod Name:</div><div class="value">' >> /usr/share/nginx/html/index.html
+              echo "$HOSTNAME" >> /usr/share/nginx/html/index.html
+              echo '</div></div>' >> /usr/share/nginx/html/index.html
+              
+              echo '<div class="info-box"><div class="label">Current Time:</div><div class="value">' >> /usr/share/nginx/html/index.html
+              date '+%Y-%m-%d %H:%M:%S %Z' >> /usr/share/nginx/html/index.html
+              echo '</div></div>' >> /usr/share/nginx/html/index.html
+              
+              cat >> /usr/share/nginx/html/index.html << 'EOF'
+                  <button class="refresh-btn" onclick="location.reload()">Refresh Certificate Info</button>
+                  <div class="footer">
+                      <p>Certificate Validity: 30 seconds | VSO Renewal: Every ~25 seconds</p>
+                      <p>Click refresh to see updated certificate info after renewal</p>
+                      <p>VSO updates the Kubernetes secret automatically - watch the serial number change!</p>
+                  </div>
+              </div>
+          </body>
+          </html>
+          EOF
+            else
+              echo "<h1>Waiting for certificate...</h1>" > /usr/share/nginx/html/index.html
+            fi
+            sleep 3
+          done
+        volumeMounts:
+        - name: tls-certs
+          mountPath: /etc/nginx/ssl
+          readOnly: true
+        - name: html
+          mountPath: /usr/share/nginx/html
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+          limits:
+            memory: "64Mi"
+            cpu: "50m"
+      volumes:
+      - name: tls-certs
+        secret:
+          secretName: pki-demo-tls
+      - name: nginx-config
+        configMap:
+          name: nginx-config
+      - name: html
+        emptyDir: {}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  namespace: pki-demo
+data:
+  default.conf: |
+    server {
+        listen 80;
+        server_name _;
+        
+        location / {
+            root /usr/share/nginx/html;
+            index index.html;
+        }
+    }
+    
+    server {
+        listen 443 ssl;
+        server_name _;
+        
+        ssl_certificate /etc/nginx/ssl/certificate;
+        ssl_certificate_key /etc/nginx/ssl/private_key;
+        
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers HIGH:!aNULL:!MD5;
+        
+        location / {
+            root /usr/share/nginx/html;
+            index index.html;
+        }
+    }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pki-demo-app
+  namespace: pki-demo
+
+# Made with Bob

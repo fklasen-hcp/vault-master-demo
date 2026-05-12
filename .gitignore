@@ -1,0 +1,23 @@
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.env
+
+# Logs
+*.log
+
+# Secrets
+*.key
+*.pem
+.vault-token
+
+# Made with Bob

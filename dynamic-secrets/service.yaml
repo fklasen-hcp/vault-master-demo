@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: vso-db-demo-ui
+  namespace: db-demo
+  labels:
+    app: vso-db-demo-ui
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: vso-db-demo-ui
+
+# Made with Bob

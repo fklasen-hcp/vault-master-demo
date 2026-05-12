@@ -1,0 +1,163 @@
+# Simple GitLab CE deployment - single pod approach
+# Much lighter than the full Helm chart
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitlab-demo
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gitlab-data
+  namespace: gitlab-demo
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitlab
+  namespace: gitlab-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gitlab
+  template:
+    metadata:
+      labels:
+        app: gitlab
+    spec:
+      containers:
+      - name: gitlab
+        image: gitlab/gitlab-ce:latest
+        ports:
+        - containerPort: 80
+          name: http
+        - containerPort: 22
+          name: ssh
+        env:
+        - name: GITLAB_ROOT_PASSWORD
+          value: "VaultDemoStr0ng!2026"
+        - name: GITLAB_OMNIBUS_CONFIG
+          value: "external_url 'http://gitlab.gitlab-demo.svc.cluster.local'; gitlab_rails['gitlab_initial_root_password'] = ENV['GITLAB_ROOT_PASSWORD']; gitlab_rails['gitlab_shell_ssh_port'] = 22; prometheus_monitoring['enable'] = false"
+        volumeMounts:
+        - name: gitlab-data
+          mountPath: /etc/gitlab
+          subPath: config
+        - name: gitlab-data
+          mountPath: /var/log/gitlab
+          subPath: logs
+        - name: gitlab-data
+          mountPath: /var/opt/gitlab
+          subPath: data
+        resources:
+          requests:
+            cpu: 500m
+            memory: 2Gi
+          limits:
+            cpu: 2
+            memory: 4Gi
+      volumes:
+      - name: gitlab-data
+        persistentVolumeClaim:
+          claimName: gitlab-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitlab
+  namespace: gitlab-demo
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 80
+    name: http
+  - port: 22
+    targetPort: 22
+    name: ssh
+  selector:
+    app: gitlab
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gitlab-runner
+  namespace: gitlab-demo
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gitlab-runner
+  namespace: gitlab-demo
+rules:
+- apiGroups: [""]
+  resources: ["pods","pods/exec","pods/attach","pods/log","pods/status","secrets","configmaps","services","serviceaccounts"]
+  verbs: ["get","list","watch","create","update","patch","delete"]
+- apiGroups: ["extensions","apps"]
+  resources: ["deployments","replicasets"]
+  verbs: ["get","list","watch"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["list","watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gitlab-runner
+  namespace: gitlab-demo
+subjects:
+- kind: ServiceAccount
+  name: gitlab-runner
+  namespace: gitlab-demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: gitlab-runner
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitlab-runner
+  namespace: gitlab-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gitlab-runner
+  template:
+    metadata:
+      labels:
+        app: gitlab-runner
+    spec:
+      serviceAccountName: gitlab-runner
+      containers:
+      - name: gitlab-runner
+        image: gitlab/gitlab-runner:alpine-v16.11.0
+        command:
+        - /bin/sh
+        - -c
+        - |
+          mkdir -p /etc/gitlab-runner
+          touch /etc/gitlab-runner/config.toml
+          gitlab-runner run --user=gitlab-runner --working-directory=/home/gitlab-runner --config /etc/gitlab-runner/config.toml
+        volumeMounts:
+        - name: runner-config
+          mountPath: /etc/gitlab-runner
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      volumes:
+      - name: runner-config
+        emptyDir: {}
+
+# Made with Bob

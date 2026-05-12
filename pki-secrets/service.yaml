@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: pki-demo-app
+  namespace: pki-demo
+  labels:
+    app: pki-demo
+spec:
+  selector:
+    app: pki-demo
+  ports:
+  - name: https
+    port: 443
+    targetPort: 443
+    protocol: TCP
+  - name: http
+    port: 80
+    targetPort: 80
+    protocol: TCP
+  type: ClusterIP
+
+# Made with Bob

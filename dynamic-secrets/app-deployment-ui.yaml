@@ -1,0 +1,580 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: demo-dynamic-app
+  namespace: db-demo
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: secret-reader
+  namespace: db-demo
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["vso-db-demo"]
+  verbs: ["get", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: demo-dynamic-app-secret-reader
+  namespace: db-demo
+subjects:
+- kind: ServiceAccount
+  name: demo-dynamic-app
+  namespace: db-demo
+roleRef:
+  kind: Role
+  name: secret-reader
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vso-db-demo-ui
+  namespace: db-demo
+  labels:
+    app: vso-db-demo-ui
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: vso-db-demo-ui
+  template:
+    metadata:
+      labels:
+        app: vso-db-demo-ui
+    spec:
+      serviceAccountName: demo-dynamic-app
+      containers:
+        # Main web application
+        - name: webapp
+          image: python:3.11-slim
+          ports:
+            - containerPort: 8080
+              name: http
+          volumeMounts:
+            - name: app-code
+              mountPath: /app
+            - name: shared-data
+              mountPath: /shared
+          workingDir: /app
+          command:
+            - /bin/bash
+            - -c
+            - |
+              pip install flask psycopg2-binary --quiet
+              python app.py
+          env:
+            - name: PGHOST
+              value: postgres-postgresql.postgres.svc.cluster.local
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              value: postgres
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+        
+        # Credential monitor sidecar (like cert-monitor in PKI demo)
+        - name: credential-monitor
+          image: bitnami/kubectl:latest
+          volumeMounts:
+            - name: shared-data
+              mountPath: /shared
+          command:
+            - /bin/bash
+            - -c
+            - |
+              echo "Starting credential monitor..."
+              while true; do
+                # Read credentials from Kubernetes secret
+                USERNAME=$(kubectl get secret vso-db-demo -n db-demo -o jsonpath='{.data.username}' 2>/dev/null | base64 -d)
+                PASSWORD=$(kubectl get secret vso-db-demo -n db-demo -o jsonpath='{.data.password}' 2>/dev/null | base64 -d)
+                TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+                
+                if [ -n "$USERNAME" ] && [ -n "$PASSWORD" ]; then
+                  # Write credentials to shared volume
+                  cat > /shared/credentials.txt <<EOF
+              username=$USERNAME
+              password=$PASSWORD
+              updated=$TIMESTAMP
+              EOF
+                  echo "[$TIMESTAMP] Credentials updated: $USERNAME"
+                else
+                  echo "[$TIMESTAMP] Waiting for credentials..."
+                fi
+                
+                sleep 3
+              done
+      
+      volumes:
+        - name: shared-data
+          emptyDir: {}
+        - name: app-code
+          configMap:
+            name: db-demo-app-code
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: db-demo-app-code
+  namespace: db-demo
+data:
+  app.py: |
+    from flask import Flask, render_template_string, jsonify, request
+    import psycopg2
+    import os
+    from datetime import datetime
+    import time
+
+    app = Flask(__name__)
+
+    def read_credentials():
+        """Read current credentials from shared volume (updated by sidecar)"""
+        try:
+            with open('/shared/credentials.txt', 'r') as f:
+                creds = {}
+                for line in f:
+                    key, value = line.strip().split('=', 1)
+                    creds[key] = value
+                return creds
+        except:
+            return None
+
+    def get_db_connection():
+        """Get database connection with current credentials"""
+        creds = read_credentials()
+        if not creds:
+            raise Exception("Credentials not available yet")
+        
+        return psycopg2.connect(
+            host=os.environ['PGHOST'],
+            port=os.environ['PGPORT'],
+            database=os.environ['PGDATABASE'],
+            user=creds['username'],
+            password=creds['password']
+        )
+
+    def init_table():
+        """Initialize demo table if it doesn't exist"""
+        max_retries = 10
+        retry_delay = 3
+        
+        for attempt in range(max_retries):
+            try:
+                conn = get_db_connection()
+                cur = conn.cursor()
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS demo_activity (
+                        id SERIAL PRIMARY KEY,
+                        username VARCHAR(255),
+                        action VARCHAR(50),
+                        message TEXT,
+                        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                conn.commit()
+                cur.close()
+                conn.close()
+                print(f"Table initialized successfully on attempt {attempt + 1}")
+                return
+            except Exception as e:
+                print(f"Attempt {attempt + 1}/{max_retries} - Error initializing table: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                else:
+                    print("Failed to initialize table after all retries")
+
+    # Initialize table on startup with retries
+    init_table()
+
+    HTML_TEMPLATE = '''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Dynamic DB Credentials Demo</title>
+        <style>
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 20px;
+                background: #f5f5f5;
+            }
+            .header {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                padding: 30px;
+                border-radius: 10px;
+                margin-bottom: 20px;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            }
+            .container {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 20px;
+                margin-bottom: 20px;
+            }
+            .panel {
+                background: white;
+                padding: 20px;
+                border-radius: 10px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            .full-width {
+                grid-column: 1 / -1;
+            }
+            h2 {
+                margin-top: 0;
+                color: #333;
+                border-bottom: 2px solid #667eea;
+                padding-bottom: 10px;
+            }
+            .credential-box {
+                background: #f8f9fa;
+                padding: 15px;
+                border-radius: 5px;
+                margin: 10px 0;
+                font-family: 'Courier New', monospace;
+            }
+            .credential-label {
+                font-weight: bold;
+                color: #666;
+                font-size: 12px;
+                text-transform: uppercase;
+            }
+            .credential-value {
+                color: #667eea;
+                font-size: 14px;
+                word-break: break-all;
+            }
+            .status {
+                display: inline-block;
+                padding: 5px 10px;
+                border-radius: 20px;
+                font-size: 12px;
+                font-weight: bold;
+            }
+            .status.active {
+                background: #d4edda;
+                color: #155724;
+            }
+            button {
+                background: #667eea;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 14px;
+                margin: 5px;
+            }
+            button:hover {
+                background: #5568d3;
+            }
+            button:disabled {
+                background: #ccc;
+                cursor: not-allowed;
+            }
+            input, textarea {
+                width: 100%;
+                padding: 8px;
+                margin: 5px 0;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                box-sizing: border-box;
+            }
+            .activity-log {
+                max-height: 400px;
+                overflow-y: auto;
+                font-family: 'Courier New', monospace;
+                font-size: 12px;
+            }
+            .activity-item {
+                padding: 8px;
+                border-bottom: 1px solid #eee;
+                display: flex;
+                justify-content: space-between;
+            }
+            .activity-item:hover {
+                background: #f8f9fa;
+            }
+            .timestamp {
+                color: #999;
+                font-size: 11px;
+            }
+            .rotating {
+                animation: pulse 2s infinite;
+            }
+            @keyframes pulse {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.5; }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>🔐 Dynamic Database Credentials Demo</h1>
+            <p>Watch credentials rotate automatically every ~30 seconds.</p>
+        </div>
+
+        <div class="container">
+            <div class="panel">
+                <h2>📊 Current Credentials</h2>
+                <div id="credentials">
+                    <div class="credential-box">
+                        <div class="credential-label">Username</div>
+                        <div class="credential-value" id="username">Loading...</div>
+                    </div>
+                    <div class="credential-box">
+                        <div class="credential-label">Password</div>
+                        <div class="credential-value" id="password">••••••••</div>
+                        <button onclick="togglePassword()">Show/Hide</button>
+                    </div>
+                    <div class="credential-box">
+                        <div class="credential-label">Last Updated</div>
+                        <div class="credential-value" id="updated">-</div>
+                    </div>
+                    <div class="credential-box">
+                        <div class="credential-label">Status</div>
+                        <span class="status active" id="status">● Active</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>🔧 Database Operations</h2>
+                <div>
+                    <input type="text" id="message" placeholder="Enter a message..." />
+                    <button onclick="insertRecord()">Insert Record</button>
+                    <button onclick="queryRecords()">Query All Records</button>
+                    <button onclick="clearRecords()">Clear All Records</button>
+                </div>
+                <div id="operation-result" style="margin-top: 15px; padding: 10px; background: #f8f9fa; border-radius: 5px; min-height: 50px;">
+                    <em>Operation results will appear here...</em>
+                </div>
+            </div>
+
+            <div class="panel full-width">
+                <h2>📝 Activity Log</h2>
+                <div class="activity-log" id="activity-log">
+                    <em>Activity will appear here...</em>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            let passwordVisible = false;
+            let actualPassword = '';
+
+            function updateCredentials() {
+                fetch('/api/credentials')
+                    .then(r => r.json())
+                    .then(data => {
+                        document.getElementById('username').textContent = data.username;
+                        actualPassword = data.password;
+                        if (!passwordVisible) {
+                            document.getElementById('password').textContent = '••••••••';
+                        } else {
+                            document.getElementById('password').textContent = actualPassword;
+                        }
+                        document.getElementById('updated').textContent = data.updated;
+                    });
+            }
+
+            function togglePassword() {
+                passwordVisible = !passwordVisible;
+                if (passwordVisible) {
+                    document.getElementById('password').textContent = actualPassword;
+                } else {
+                    document.getElementById('password').textContent = '••••••••';
+                }
+            }
+
+            function insertRecord() {
+                const message = document.getElementById('message').value || 'Test message';
+                fetch('/api/insert', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({message: message})
+                })
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('operation-result').innerHTML = 
+                        `<strong>✓ Success:</strong> ${data.message}`;
+                    loadActivity();
+                })
+                .catch(e => {
+                    document.getElementById('operation-result').innerHTML = 
+                        `<strong>✗ Error:</strong> ${e.message}`;
+                });
+            }
+
+            function queryRecords() {
+                fetch('/api/query')
+                    .then(r => r.json())
+                    .then(data => {
+                        let html = `<strong>Found ${data.count} records:</strong><br><br>`;
+                        data.records.forEach(r => {
+                            html += `<div style="margin: 5px 0; padding: 5px; background: white; border-radius: 3px;">
+                                <strong>${r.username}</strong>: ${r.message} 
+                                <span style="color: #999; font-size: 11px;">(${r.timestamp})</span>
+                            </div>`;
+                        });
+                        document.getElementById('operation-result').innerHTML = html;
+                    });
+            }
+
+            function clearRecords() {
+                if (confirm('Clear all records?')) {
+                    fetch('/api/clear', {method: 'POST'})
+                        .then(r => r.json())
+                        .then(data => {
+                            document.getElementById('operation-result').innerHTML = 
+                                `<strong>✓ Success:</strong> ${data.message}`;
+                            loadActivity();
+                        });
+                }
+            }
+
+            function loadActivity() {
+                fetch('/api/activity')
+                    .then(r => r.json())
+                    .then(data => {
+                        let html = '';
+                        data.activity.forEach(a => {
+                            html += `<div class="activity-item">
+                                <div>
+                                    <strong>${a.username}</strong> - ${a.action}: ${a.message}
+                                </div>
+                                <div class="timestamp">${a.timestamp}</div>
+                            </div>`;
+                        });
+                        document.getElementById('activity-log').innerHTML = html || '<em>No activity yet</em>';
+                    });
+            }
+
+            // Update credentials every 3 seconds
+            setInterval(updateCredentials, 3000);
+            updateCredentials();
+
+            // Load activity every 5 seconds
+            setInterval(loadActivity, 5000);
+            loadActivity();
+        </script>
+    </body>
+    </html>
+    '''
+
+    @app.route('/')
+    def index():
+        return render_template_string(HTML_TEMPLATE)
+
+    @app.route('/health')
+    def health():
+        return jsonify({"status": "healthy"})
+
+    @app.route('/api/credentials')
+    def api_credentials():
+        creds = read_credentials()
+        if creds:
+            return jsonify(creds)
+        return jsonify({"error": "Credentials not available"}), 503
+
+    @app.route('/api/insert', methods=['POST'])
+    def api_insert():
+        try:
+            data = request.json
+            message = data.get('message', 'No message')
+            
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO demo_activity (username, action, message) VALUES (%s, %s, %s)",
+                (read_credentials()['username'], 'INSERT', message)
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+            
+            return jsonify({"success": True, "message": f"Record inserted with user {read_credentials()['username']}"})
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 500
+
+    @app.route('/api/query')
+    def api_query():
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT username, action, message, timestamp FROM demo_activity ORDER BY timestamp DESC LIMIT 20")
+            records = []
+            for row in cur.fetchall():
+                records.append({
+                    "username": row[0],
+                    "action": row[1],
+                    "message": row[2],
+                    "timestamp": row[3].strftime("%Y-%m-%d %H:%M:%S")
+                })
+            cur.close()
+            conn.close()
+            
+            return jsonify({"count": len(records), "records": records})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route('/api/clear', methods=['POST'])
+    def api_clear():
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("DELETE FROM demo_activity")
+            conn.commit()
+            cur.close()
+            conn.close()
+            
+            return jsonify({"success": True, "message": "All records cleared"})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route('/api/activity')
+    def api_activity():
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT username, action, message, timestamp FROM demo_activity ORDER BY timestamp DESC LIMIT 50")
+            activity = []
+            for row in cur.fetchall():
+                activity.append({
+                    "username": row[0],
+                    "action": row[1],
+                    "message": row[2],
+                    "timestamp": row[3].strftime("%Y-%m-%d %H:%M:%S")
+                })
+            cur.close()
+            conn.close()
+            
+            return jsonify({"activity": activity})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    if __name__ == '__main__':
+        app.run(host='0.0.0.0', port=8080, debug=False)
+
+# Made with Bob

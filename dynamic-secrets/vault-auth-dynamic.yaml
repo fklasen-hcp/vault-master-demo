@@ -1,0 +1,16 @@
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultAuth
+metadata:
+  name: dynamic-auth
+  namespace: db-demo
+spec:
+  namespace: root
+  method: kubernetes
+  mount: vso-demo-auth
+  kubernetes:
+    role: vso-demo-auth-role
+    serviceAccount: demo-dynamic-app
+    audiences:
+      - vault
+
+# Made with Bob

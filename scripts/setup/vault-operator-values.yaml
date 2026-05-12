@@ -1,0 +1,22 @@
+defaultVaultConnection:
+  enabled: true
+  # Use host.minikube.internal to access host machine from minikube
+  address: "https://host.minikube.internal:8200"
+  skipTLSVerify: true
+
+controller:
+  kubeRbacProxy:
+    enabled: false
+  manager:
+    clientCache:
+      persistenceModel: direct-encrypted
+      storageEncryption:
+        enabled: true
+        mount: vso-demo-auth
+        keyName: vso-client-cache
+        namespace: "root"
+        transitMount: vso-demo-transit
+        kubernetes:
+          role: vso-demo-auth-role-operator
+          serviceAccount: vault-secrets-operator-controller-manager
+          tokenAudiences: ["vault"]

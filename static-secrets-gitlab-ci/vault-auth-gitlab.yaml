@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gitlab-runner
+  namespace: gitlab-demo
+---
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultAuth
+metadata:
+  name: gitlab-auth
+  namespace: gitlab-demo
+spec:
+  namespace: root
+  method: kubernetes
+  mount: vso-demo-auth
+  kubernetes:
+    role: vso-demo-gitlab-role
+    serviceAccount: gitlab-runner
+    audiences:
+      - vault
+# Made with Bob

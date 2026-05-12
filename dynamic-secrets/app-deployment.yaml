@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vso-db-demo
+  namespace: db-demo
+  labels:
+    app: vso-db-demo
+spec:
+  selector:
+    matchLabels:
+      app: vso-db-demo
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: vso-db-demo
+    spec:
+      serviceAccountName: demo-dynamic-app
+      containers:
+        - name: app
+          image: postgres:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PGHOST
+              value: postgres-postgresql.postgres.svc.cluster.local
+            - name: PGPORT
+              value: "5432"
+            - name: PGDATABASE
+              value: postgres
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: vso-db-demo
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: vso-db-demo
+                  key: password
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Connecting to PostgreSQL with dynamic credentials..."
+              while true; do
+                psql -c "SELECT current_user, now();" || echo "Connection failed, retrying..."
+                sleep 30
+              done
+
+# Made with Bob
