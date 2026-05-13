@@ -2,6 +2,33 @@
 
 This repository demonstrates how to use HashiCorp's Vault Secrets Operator (VSO) with a local Vault Enterprise server, showcasing static secrets, dynamic database credentials, and PKI certificate auto-renewal in Kubernetes.
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Prerequisites](#prerequisites)
+- [Quick Commands Reference](#quick-commands-reference)
+  - [Deploy Everything from Scratch](#deploy-everything-from-scratch)
+  - [After Laptop Sleep / System Recovery](#after-laptop-sleep--system-recovery)
+  - [Restart After Shutdown](#restart-after-shutdown)
+  - [Complete Cleanup](#complete-cleanup)
+  - [Redeploy Individual Demos](#redeploy-individual-demos)
+- [Complete Setup](#complete-setup)
+- [Accessing Vault](#accessing-vault)
+- [Demos](#demos)
+  - [1. Static Secrets Demo](#1-static-secrets-demo)
+  - [2. Dynamic Secrets Demo](#2-dynamic-secrets-demo)
+  - [3. PKI Certificate Auto-Renewal Demo](#3-pki-certificate-auto-renewal-demo)
+  - [4. GitLab CI/CD Integration Demo](#4-gitlab-cicd-integration-demo)
+  - [5. Audit Monitoring Demo](#5-audit-monitoring-demo)
+- [How It Works](#how-it-works)
+- [Vault Resources](#vault-resources-with-master-demo--prefix)
+- [Configuration Files](#configuration-files)
+- [Makefile Targets](#makefile-targets)
+- [Cleanup Options](#cleanup-options)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
+
 ## Overview
 
 This setup uses:
@@ -27,9 +54,9 @@ This setup uses:
 │                 │                                               │
 │  ┌──────────────▼───────────────────────────────────────────┐  │
 │  │ Application Pods                                         │  │
-│  │ - Static secrets (username/password)                    │  │
-│  │ - Dynamic DB credentials (auto-rotated)                 │  │
-│  │ - TLS certificates (auto-renewed)                       │  │
+│  │ - Static secrets: GitLab CI/CD (username/password)      │  │
+│  │ - Dynamic secrets: Web UI + DB (auto-rotated creds)    │  │
+│  │ - PKI secrets: Web app (auto-renewed TLS certs)        │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                                                                 │
 │  ┌──────────────────────────────────────────────────────────┐  │
@@ -54,9 +81,10 @@ This setup uses:
          │ - master-demo      │
          │                 │
          │ Engines:        │
-         │ - master-demo-kv   │
-         │ - master-demo-db   │
-         │ - master-demo-pki  │
+         │ - master-demo-kv      │
+         │ - master-demo-db      │
+         │ - master-demo-pki     │
+         │ - master-demo-transit (used by VSO) │
          │                 │
          │ Audit Device:   │
          │ - File audit    │
@@ -105,6 +133,176 @@ Grafana Dashboard
 
 All demo resources are created in the `master-demo` Vault namespace for better organization and isolation. This follows Vault Enterprise best practices for multi-tenancy.
 
+## Quick Commands Reference
+
+### Deploy Everything from Scratch
+```bash
+# Set environment variables
+export VAULT_ADDR=https://127.0.0.1:8200
+export VAULT_SKIP_VERIFY=true
+export VAULT_TOKEN=your-vault-root-token
+
+# Deploy all demos (dynamic, PKI, GitLab CI) est. time 5-10 to deploy
+make all-local
+```
+
+### After Laptop Sleep / System Recovery
+
+If demos stop working after your laptop sleeps (PKI rotation stops, audit monitoring breaks, etc.), use the recovery helper:
+
+```bash
+make all-recover
+```
+
+This script:
+- Restarts the minikube mount for audit log access
+- Restarts the audit exporter pod
+- Restarts the VSO controller for PKI rotation
+- Verifies PKI certificate status
+
+It usually restores all functionality after a suspend/resume event.
+
+### Restart After Shutdown
+```bash
+# 1. Start Vault Enterprise (follow your usual startup process)
+
+# 2. Verify Vault is running and unsealed
+vault status
+
+# 3. Start minikube
+minikube start
+
+# 4. Set environment variables
+export VAULT_ADDR=https://127.0.0.1:8200
+export VAULT_SKIP_VERIFY=true
+export VAULT_TOKEN=your-vault-root-token
+
+# 5. Recover all services (updates Kubernetes auth, restarts services, starts port-forwards)
+make all-recover
+```
+
+**What persists automatically:**
+- ✅ All Vault data (secrets, policies, roles, PKI CAs)
+- ✅ All Kubernetes resources (pods, secrets, deployments)
+- ✅ Static secrets (work immediately after restart)
+- ✅ PKI certificates (continue auto-renewing)
+- ✅ Dynamic secrets (work after port-forward is restarted)
+
+### Complete Cleanup
+```bash
+# Clean all Vault configuration and demo namespaces (preserves Minikube cluster)
+make clean-all-local
+
+# To completely remove the Minikube cluster (optional):
+minikube delete
+```
+
+### Redeploy Individual Demos
+```bash
+# Redeploy static secrets only
+make deploy-static-secrets-local
+
+# Redeploy dynamic secrets only
+make setup-postgresql-local
+make deploy-dynamic-secrets-local
+
+# Redeploy PKI demo only
+make setup-pki-vault
+make deploy-pki-secrets
+
+# Redeploy audit monitoring only
+make setup-audit-monitoring
+```
+
+
+## Complete Setup
+
+### 1. Prerequisites Check
+
+```bash
+# Verify Vault is running
+vault status
+
+# Verify minikube is available
+minikube version
+
+# Verify kubectl and helm
+kubectl version --client
+helm version
+```
+
+### 2. Set Environment Variables
+
+```bash
+export VAULT_ADDR=https://127.0.0.1:8200
+export VAULT_SKIP_VERIFY=true
+export VAULT_TOKEN=your-vault-root-token
+```
+
+### 3. Deploy Everything
+
+```bash
+make all-local
+```
+
+This single command will:
+1. ✅ Start minikube (if not running)
+2. ✅ Configure Vault with auth methods, policies, and secrets engines
+3. ✅ Install Vault Secrets Operator
+4. ✅ Deploy static secrets demo
+5. ✅ Install PostgreSQL
+6. ✅ Configure PostgreSQL in Vault with proper permissions
+7. ✅ Deploy dynamic secrets **interactive web UI demo**
+8. ✅ Configure PKI engines (root + issuing CA)
+9. ✅ Deploy PKI certificate auto-renewal demo
+
+### 4. Access the Interactive Demos
+
+All port-forwards are automatically started by `make all-local`. Access the demos at:
+
+- **Vault UI**: https://127.0.0.1:8200 (username: demo / password: demo123)
+- **Dynamic DB UI**: http://localhost:8090
+- **PKI Demo**: http://localhost:9090
+- **GitLab**: http://localhost:8080 (root / VaultDemoStr0ng!2026)
+- **Grafana**: http://localhost:3000 (admin/admin)
+- **Prometheus**: http://localhost:9091
+- **PostgreSQL**: localhost:5432
+
+**Manage Port-Forwards:**
+
+```bash
+# Check status
+make status-port-forwards
+
+# Restart all port-forwards (if needed)
+make port-forward-all
+
+# Stop all port-forwards
+make stop-port-forwards
+```
+
+**Individual Port-Forwards (if needed):**
+
+```bash
+# Dynamic DB UI - Interactive web interface
+make db-ui-port-forward
+
+# PKI Demo - Certificate auto-renewal web interface
+make pki-port-forward
+
+# GitLab - CI/CD integration demo
+make gitlab-port-forward
+
+# PostgreSQL (required for dynamic secrets)
+make postgres-port-forward
+
+# Grafana - Audit monitoring dashboard
+make grafana-port-forward
+
+# Prometheus - Metrics and monitoring
+make prometheus-port-forward
+```
+
 ## Accessing Vault
 
 ### For UI Demos (Recommended)
@@ -151,178 +349,6 @@ vault read master-demo-db/creds/dev-postgres
 Maximum disk usage: ~200MB (current file + 1 rotated backup file).
 
 
-## Quick Commands Reference
-
-### Deploy Everything from Scratch
-```bash
-# Set environment variables
-export VAULT_ADDR=https://127.0.0.1:8200
-export VAULT_SKIP_VERIFY=true
-export VAULT_TOKEN=your-vault-root-token
-
-# Deploy all demos (dynamic, PKI, GitLab CI) est. time 5-10 to deploy
-make all-local
-```
-
-### Restart After Shutdown
-```bash
-# 1. Start minikube
-minikube start
-
-# 2. Verify Vault is running and unsealed
-vault status
-
-# 3. Set environment variables
-export VAULT_ADDR=https://127.0.0.1:8200
-export VAULT_SKIP_VERIFY=true
-export VAULT_TOKEN=your-vault-root-token
-
-# 4. Update Vault's Kubernetes auth (minikube IP changes)
-./scripts/setup/setup-local-vault.sh
-
-# 5. Start all port-forwards (single command!)
-make port-forward-all
-```
-
-**After laptop sleep / system recovery**
-
-If demos stop working after your laptop sleeps (PKI rotation stops, audit monitoring breaks, etc.), use the recovery helper:
-
-```bash
-make all-recover
-```
-
-This script:
-- Restarts the minikube mount for audit log access
-- Restarts the audit exporter pod
-- Restarts the VSO controller for PKI rotation
-- Verifies PKI certificate status
-
-It usually restores all functionality after a suspend/resume event.
-
-**What persists automatically:**
-- ✅ All Vault data (secrets, policies, roles, PKI CAs)
-- ✅ All Kubernetes resources (pods, secrets, deployments)
-- ✅ Static secrets (work immediately after restart)
-- ✅ PKI certificates (continue auto-renewing)
-- ✅ Dynamic secrets (work after port-forward is restarted)
-
-### Complete Cleanup
-```bash
-# Clean all Vault configuration and demo namespaces (preserves Minikube cluster)
-make clean-all-local
-
-# To completely remove the Minikube cluster (optional):
-minikube delete
-```
-
-### Redeploy Individual Demos
-```bash
-# Redeploy static secrets only
-make deploy-static-secrets-local
-
-# Redeploy dynamic secrets only
-make setup-postgresql-local
-make deploy-dynamic-secrets-local
-
-# Redeploy PKI demo only
-make setup-pki-vault
-make deploy-pki-secrets
-```
-
-
-## Quick Start (Complete Setup)
-
-### 1. Prerequisites Check
-
-```bash
-# Verify Vault is running
-vault status
-
-# Verify minikube is available
-minikube version
-
-# Verify kubectl and helm
-kubectl version --client
-helm version
-```
-
-### 2. Set Environment Variables
-
-```bash
-export VAULT_ADDR=https://127.0.0.1:8200
-export VAULT_SKIP_VERIFY=true
-export VAULT_TOKEN=your-vault-root-token
-```
-
-### 3. Deploy Everything
-
-```bash
-make all-local
-```
-
-This single command will:
-1. ✅ Start minikube (if not running)
-2. ✅ Configure Vault with auth methods, policies, and secrets engines
-3. ✅ Install Vault Secrets Operator
-4. ✅ Deploy static secrets demo
-5. ✅ Install PostgreSQL
-6. ✅ Configure PostgreSQL in Vault with proper permissions
-7. ✅ Deploy dynamic secrets **interactive web UI demo**
-8. ✅ Configure PKI engines (root + issuing CA)
-9. ✅ Deploy PKI certificate auto-renewal demo
-
-### 4. Verify All Demos
-
-```bash
-# Static secrets
-kubectl get secret -n static-demo secretkv -o jsonpath="{.data.username}" | base64 -d
-kubectl get secret -n static-demo secretkv -o jsonpath="{.data.password}" | base64 -d
-
-# Dynamic secrets
-kubectl get secret -n db-demo vso-db-demo -o jsonpath="{.data.username}" | base64 -d
-kubectl get secret -n db-demo vso-db-demo -o jsonpath="{.data.password}" | base64 -d
-
-# PKI certificates
-kubectl get secret -n pki-demo pki-demo-tls -o jsonpath="{.data.certificate}" | base64 -d | openssl x509 -noout -subject -dates
-```
-
-### 5. Access the Interactive Demos
-
-**Option A: Start All Port-Forwards at Once (Recommended)**
-
-```bash
-# Start all port-forwards in background (single command!)
-make port-forward-all
-
-# Access the demos:
-# - Dynamic DB UI:    http://localhost:8090
-# - PKI Demo (HTTPS): https://localhost:8443
-# - PKI Demo (HTTP):  http://localhost:9090
-# - PostgreSQL:       localhost:5432
-
-# Check status
-make status-port-forwards
-
-# Stop all port-forwards
-make stop-port-forwards
-```
-
-**Option B: Individual Port-Forwards**
-
-```bash
-# Dynamic DB UI - Interactive web interface
-make db-ui-port-forward
-# Open: http://localhost:8090
-
-# PKI Demo - Certificate auto-renewal web interface
-make pki-port-forward
-# Open: https://localhost:8443 or http://localhost:9090
-
-# PostgreSQL (required for dynamic secrets)
-make postgres-port-forward
-```
-
 ## Demos
 
 ### 1. Static Secrets Demo
@@ -361,16 +387,7 @@ Dynamic secrets are generated on-demand by Vault's database engine (`master-demo
 
 #### Option A: Interactive Web UI Demo (Recommended)
 
-The web UI provides a visual, interactive demonstration of dynamic credentials:
-
-```bash
-# Deploy the web UI demo
-make deploy-db-ui
-
-# Access the web interface
-make db-ui-port-forward
-# Then open: http://localhost:8090
-```
+The web UI provides a visual, interactive demonstration of dynamic credentials at **http://localhost:8090**
 
 **Features:**
 - 🔄 **Real-time credential display** - Watch username/password update every ~30 seconds
@@ -389,7 +406,6 @@ make db-ui-port-forward
 ```bash
 make db-ui-status          # Check deployment status
 make db-ui-logs            # View application logs
-make db-ui-port-forward    # Access web UI at http://localhost:8090
 make clean-db-ui           # Remove web UI (keeps VaultAuth/VaultDynamicSecret)
 ```
 
@@ -421,15 +437,9 @@ kubectl delete secret -n db-demo vso-db-demo
 
 #### Option C: Database Visualization with pgAdmin
 
-Complement the demo by showing how dynamic roles are actually created and removed in PostgreSQL:
+Complement the demo by showing how dynamic roles are actually created and removed in PostgreSQL.
 
-**Setup:**
-```bash
-# Access pgAdmin (if deployed)
-make postgres-port-forward
-# Open: http://localhost:5050
-# Login: admin@admin.com / admin
-```
+**Access pgAdmin** at http://localhost:5050 (admin@admin.com / admin)
 
 **Connect to PostgreSQL in pgAdmin:**
 1. Right-click **Servers** → **Register** → **Server**
@@ -465,8 +475,11 @@ make postgres-port-forward
 
 ### 3. PKI Certificate Auto-Renewal Demo
 
-Certificates are automatically generated and renewed by Vault's PKI engine (`master-demo-pki-issuing`):
+Certificates are automatically generated and renewed by Vault's PKI engine (`master-demo-pki-issuing`).
 
+**Access the demo application** at http://localhost:9090
+
+**Useful commands:**
 ```bash
 # Watch certificate expiration in real-time
 make watch-pki-certs
@@ -476,10 +489,6 @@ make pki-status
 
 # View application logs
 make pki-logs
-
-# Access the demo application
-make pki-port-forward
-# Then open: https://localhost:8443 or http://localhost:9090
 ```
 
 **Configuration:**
@@ -539,11 +548,11 @@ make install-gitlab
 make deploy-gitlab-demo
 make setup-gitlab-project
 make register-gitlab-runner
-make gitlab-port-forward
 ```
 
+**Access GitLab** at http://localhost:8080
+
 Login:
-- URL: `http://localhost:8080`
 - Username: `root`
 - Password: `VaultDemoStr0ng!2026`
 
@@ -597,21 +606,12 @@ make clean-gitlab-all
 
 Real-time monitoring and visualization of all Vault operations through Prometheus and Grafana.
 
-#### Quick Start
+**Access the dashboards:**
+- **Grafana**: http://localhost:3000 (admin/admin)
+- **Prometheus**: http://localhost:9091
 
+**Generate test traffic:**
 ```bash
-# Deploy complete audit monitoring stack (included in make all-local)
-make setup-audit-monitoring
-
-# Access Grafana dashboard
-make grafana-port-forward
-# Open: http://localhost:3000 (admin/admin)
-
-# Access Prometheus
-make prometheus-port-forward
-# Open: http://localhost:9091
-
-# Generate test traffic
 make test-audit-traffic
 ```
 
@@ -1002,14 +1002,6 @@ vault secrets disable master-demo-transit
 vault auth disable master-demo-auth
 ```
 
-## Advantages of Local Vault
-
-✅ **Persistent data** - Survives minikube restarts
-✅ **No unsealing** - Your local Vault is already managed
-✅ **Production-like** - Closer to real deployment
-✅ **Easy debugging** - Direct access to Vault UI and CLI
-✅ **Resource efficient** - No Vault pod in cluster
-
 ## Troubleshooting
 
 ### VSO Cannot Connect to Vault
@@ -1090,13 +1082,6 @@ make pki-logs
 # Restart VSO pods to pick up new configuration
 kubectl rollout restart deployment -n vault-secrets-operator-system
 ```
-
-## Learn More
-
-- [Vault Secrets Operator Documentation](https://developer.hashicorp.com/vault/docs/platform/k8s/vso)
-- [Vault Kubernetes Authentication](https://developer.hashicorp.com/vault/docs/auth/kubernetes)
-- [Vault Database Secrets Engine](https://developer.hashicorp.com/vault/docs/secrets/databases)
-- [Vault Transit Secrets Engine](https://developer.hashicorp.com/vault/docs/secrets/transit)
 
 ## License
 
