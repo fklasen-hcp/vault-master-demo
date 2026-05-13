@@ -16,12 +16,11 @@ This repository demonstrates how to use HashiCorp's Vault Secrets Operator (VSO)
 - [Complete Setup](#complete-setup)
 - [Accessing Vault](#accessing-vault)
 - [Demos](#demos)
-  - [1. Static Secrets Demo](#1-static-secrets-demo)
+  - [1. Static Secrets with GitLab CI/CD Demo](#1-static-secrets-with-gitlab-cicd-demo)
   - [2. Dynamic Secrets Demo](#2-dynamic-secrets-demo)
   - [3. PKI Certificate Auto-Renewal Demo](#3-pki-certificate-auto-renewal-demo)
-  - [4. GitLab CI/CD Integration Demo](#4-gitlab-cicd-integration-demo)
-  - [5. Audit Monitoring Demo](#5-audit-monitoring-demo)
-- [How It Works](#how-it-works)
+  - [4. Audit Monitoring Demo](#4-audit-monitoring-demo)
+- [Technical Details: Authentication and Secret Flows](#technical-details-authentication-and-secret-flows)
 - [Vault Resources](#vault-resources-with-master-demo--prefix)
 - [Configuration Files](#configuration-files)
 - [Makefile Targets](#makefile-targets)
@@ -351,11 +350,11 @@ Maximum disk usage: ~200MB (current file + 1 rotated backup file).
 
 ## Demos
 
-### 1. Static Secrets Demo
+### 1. Static Secrets with GitLab CI/CD Demo
 
-Static secrets are stored in Vault's KV v2 engine (`master-demo-kv`) and automatically synced to Kubernetes.
+Static secrets are stored in Vault's KV v2 engine (`master-demo-kv`) and automatically synced to Kubernetes. This demo showcases both basic static secret sync and GitLab CI/CD pipeline integration.
 
-#### Demo Workflow (Vault UI)
+#### Option A: Basic Static Secrets (Vault UI)
 
 1. **Access Vault UI** at https://127.0.0.1:8200
    - Login with username: `demo` / password: `demo123`
@@ -369,17 +368,72 @@ Static secrets are stored in Vault's KV v2 engine (`master-demo-kv`) and automat
 3. **Watch automatic sync to Kubernetes** (~30 seconds):
    ```bash
    # Monitor the Kubernetes secret for changes
-   watch -n 2 'kubectl get secret -n app secretkv -o jsonpath="{.data.password}" | base64 -d'
+   watch -n 2 'kubectl get secret -n static-demo secretkv -o jsonpath="{.data.password}" | base64 -d'
    ```
 
 4. **Observe the change** - The Kubernetes secret updates automatically without pod restarts
 
+#### Option B: GitLab CI/CD Integration
+
+GitLab CE with a lightweight Kubernetes runner demonstrates how CI/CD pipelines can consume secrets from Vault via VSO.
+
+**Access GitLab** at http://localhost:8080
+- Username: `root`
+- Password: `VaultDemoStr0ng!2026`
+
+**Demo Flow:**
+1. Open `http://localhost:8080/demo/vault-demo/-/pipelines`
+2. Run the pipeline
+3. Inspect job output showing:
+   - `/vault/secrets/username`
+   - `/vault/secrets/password`
+4. Update Vault:
+   ```bash
+   vault kv put master-demo-kv/webapp/config username="new-user" password="new-pass"
+   ```
+5. Wait about 30 seconds for VSO sync
+6. Re-run the pipeline
+7. Show the updated values in the job log
+
+**What this proves:**
+- GitLab pipeline does not need direct Vault connectivity
+- VSO syncs Vault KV data into a Kubernetes secret
+- Runner-created job pods mount the synced secret as files
+- Re-running the pipeline after a Vault update shows the changed value
+
 **Configuration:**
 - Vault engine: `master-demo-kv` (KV v2)
 - Vault path: `webapp/config`
-- K8s secret: `secretkv` in namespace `static-demo`
-- Refresh interval: 30 seconds
-- **Demo tip**: Use Vault UI for visual demonstration of secret versioning
+- Vault role: `master-demo-gitlab-role`
+- Kubernetes namespace: `gitlab-demo`
+- Synced secret: `secretkv`
+- Refresh interval: `30s`
+- Runner model: separate GitLab Runner deployment using Kubernetes executor
+- Secret mount in jobs: `/vault/secrets`
+
+**Useful Commands:**
+```bash
+# Deploy GitLab demo
+make all-gitlab
+
+# Check status
+make gitlab-status
+make gitlab-logs
+make gitlab-runner-logs
+
+# Test Vault connectivity
+make test-gitlab-vault
+
+# Cleanup
+make clean-gitlab
+make clean-gitlab-vault
+make clean-gitlab-all
+```
+
+**Resource Requirements:**
+- Minimum: 4 CPU, 8GB RAM
+- Recommended: 6 CPU, 12GB RAM
+- GitLab initialization takes several minutes
 
 ### 2. Dynamic Secrets Demo
 
@@ -519,90 +573,9 @@ make clean-pki-vault
 
 # Complete PKI cleanup (K8s + Vault)
 make clean-pki-all
-
-### 4. GitLab CI/CD Integration Demo
-
-GitLab CE with a lightweight Kubernetes runner demonstrates how CI/CD pipelines can consume secrets from Vault via VSO.
-
-**Layout**
-- GitLab manifests: `static-secrets-gitlab-ci/manifests/`
-- GitLab VSO resources: `static-secrets-gitlab-ci/`
-- Sample project files synced into GitLab: `static-secrets-gitlab-ci/sample-project/`
-- GitLab setup scripts: `scripts/setup/`
-- GitLab cleanup scripts: `scripts/cleanup/`
-- GitLab test scripts: `scripts/test/`
-
-**Deploy**
-```bash
-# Complete GitLab demo
-make all-gitlab
-
-# Included in full environment bootstrap
-make all-local
 ```
 
-**Step-by-step flow**
-```bash
-make setup-gitlab-vault
-make install-gitlab
-make deploy-gitlab-demo
-make setup-gitlab-project
-make register-gitlab-runner
-```
-
-**Access GitLab** at http://localhost:8080
-
-Login:
-- Username: `root`
-- Password: `VaultDemoStr0ng!2026`
-
-**Configuration**
-- Vault engine: `master-demo-kv`
-- Vault path: `webapp/config`
-- Vault role: `master-demo-gitlab-role`
-- Kubernetes namespace: `gitlab-demo`
-- Synced secret: `secretkv`
-- Refresh interval: `30s`
-- Runner model: separate GitLab Runner deployment using Kubernetes executor
-- Secret mount in jobs: `/vault/secrets`
-
-**Demo flow**
-1. `make all-gitlab` or `make all-local`
-2. Open `http://localhost:8080/demo/vault-demo/-/pipelines`
-3. Run the pipeline
-4. Inspect job output showing:
-   - `/vault/secrets/username`
-   - `/vault/secrets/password`
-5. Update Vault:
-   ```bash
-   vault kv put master-demo-kv/webapp/config username="new-user" password="new-pass"
-   ```
-6. Wait about 30 seconds for VSO sync
-7. Re-run the pipeline
-8. Show the updated values in the job log
-
-**What this proves**
-- GitLab pipeline does not need direct Vault connectivity
-- VSO syncs Vault KV data into a Kubernetes secret
-- Runner-created job pods mount the synced secret as files
-- Re-running the pipeline after a Vault update shows the changed value
-
-**Useful commands**
-```bash
-make gitlab-status
-make gitlab-logs
-make gitlab-runner-logs
-make test-gitlab-vault
-make clean-gitlab
-make clean-gitlab-vault
-make clean-gitlab-all
-```
-
-**Resource requirements**
-- Minimum: 4 CPU, 8GB RAM
-- Recommended: 6 CPU, 12GB RAM
-- GitLab initialization still takes several minutes
-### 5. Audit Monitoring Demo
+### 4. Audit Monitoring Demo
 
 Real-time monitoring and visualization of all Vault operations through Prometheus and Grafana.
 
@@ -799,7 +772,7 @@ audit-monitoring/
 
 
 
-## How It Works
+## Technical Details: Authentication and Secret Flows
 
 ### Connection to Local Vault
 
