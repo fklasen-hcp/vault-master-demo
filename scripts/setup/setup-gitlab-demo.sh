@@ -34,22 +34,25 @@ fi
 
 echo -e "${GREEN}✓ Vault is accessible and unsealed${NC}"
 
+# Use master-demo namespace
+export VAULT_NAMESPACE=master-demo
+
 echo -e "\n${GREEN}Checking prerequisite Vault resources...${NC}"
-if ! vault secrets list | grep -q "vso-demo-kv"; then
-    echo -e "${RED}ERROR: KV engine 'vso-demo-kv' not found. Run local Vault setup first.${NC}"
+if ! vault secrets list | grep -q "master-demo-kv"; then
+    echo -e "${RED}ERROR: KV engine 'master-demo-kv' not found. Run local Vault setup first.${NC}"
     exit 1
 fi
 
-if ! vault auth list | grep -q "vso-demo-auth"; then
-    echo -e "${RED}ERROR: Kubernetes auth 'vso-demo-auth' not found. Run local Vault setup first.${NC}"
+if ! vault auth list | grep -q "master-demo-auth"; then
+    echo -e "${RED}ERROR: Kubernetes auth 'master-demo-auth' not found. Run local Vault setup first.${NC}"
     exit 1
 fi
 
 echo -e "${GREEN}✓ Base Vault configuration exists${NC}"
 
 echo -e "\n${GREEN}Creating/updating GitLab Vault policy...${NC}"
-vault policy write vso-demo-gitlab-policy - <<EOF
-path "vso-demo-kv/data/webapp/config" {
+vault policy write master-demo-gitlab-policy - <<EOF
+path "master-demo-kv/data/webapp/config" {
    capabilities = ["read", "list", "subscribe"]
    subscribe_event_types = ["kv*"]
 }
@@ -60,18 +63,18 @@ path "sys/events/subscribe/kv*" {
 EOF
 
 echo -e "${GREEN}Creating/updating GitLab Kubernetes auth role...${NC}"
-vault write auth/vso-demo-auth/role/vso-demo-gitlab-role \
+vault write auth/master-demo-auth/role/master-demo-gitlab-role \
    bound_service_account_names=gitlab-runner \
    bound_service_account_namespaces=gitlab-demo \
-   policies=vso-demo-gitlab-policy \
+   policies=master-demo-gitlab-policy \
    audience=vault \
    token_period=2m
 
 echo -e "\n${GREEN}Ensuring demo secret exists in Vault...${NC}"
-if vault kv get vso-demo-kv/webapp/config > /dev/null 2>&1; then
-    echo -e "${GREEN}✓ Secret 'vso-demo-kv/webapp/config' already exists${NC}"
+if vault kv get master-demo-kv/webapp/config > /dev/null 2>&1; then
+    echo -e "${GREEN}✓ Secret 'master-demo-kv/webapp/config' already exists${NC}"
 else
-    vault kv put vso-demo-kv/webapp/config username="static-user" password="static-password"
+    vault kv put master-demo-kv/webapp/config username="static-user" password="static-password"
     echo -e "${GREEN}✓ Default demo secret created${NC}"
 fi
 
@@ -389,6 +392,6 @@ if [ "$PIPELINE_STATUS" = "201" ] && [ -n "$PIPELINE_ID" ]; then
 else
     echo "Initial pipeline was not created automatically; run it manually from the UI"
 fi
-echo "Re-run the pipeline after updating Vault secret vso-demo-kv/webapp/config to show fresh values."
+echo "Re-run the pipeline after updating Vault secret master-demo-kv/webapp/config to show fresh values."
 
 # Made with Bob

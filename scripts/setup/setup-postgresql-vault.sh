@@ -19,8 +19,8 @@ if [ -z "$VAULT_TOKEN" ]; then
     exit 1
 fi
 
-# Use root namespace
-unset VAULT_NAMESPACE
+# Use master-demo namespace
+export VAULT_NAMESPACE=master-demo
 
 # Wait for PostgreSQL to be ready
 echo -e "\n${GREEN}Waiting for PostgreSQL to be ready...${NC}"
@@ -70,7 +70,7 @@ RETRY_COUNT=0
 RETRY_DELAY=5
 
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if vault write vso-demo-db/config/vso-demo-db \
+    if vault write master-demo-db/config/master-demo-db \
        plugin_name=postgresql-database-plugin \
        allowed_roles="dev-postgres" \
        connection_url="postgresql://{{username}}:{{password}}@${POSTGRES_HOST}:${POSTGRES_PORT}/postgres?sslmode=disable" \
@@ -92,8 +92,8 @@ while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
 done
 
 echo -e "\n${GREEN}Creating database role...${NC}"
-vault write vso-demo-db/roles/dev-postgres \
-   db_name=vso-demo-db \
+vault write master-demo-db/roles/dev-postgres \
+   db_name=master-demo-db \
    creation_statements="CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; \
       GRANT ALL PRIVILEGES ON DATABASE postgres TO \"{{name}}\"; \
       GRANT ALL ON SCHEMA public TO \"{{name}}\"; \
@@ -118,7 +118,7 @@ echo -e "\n${GREEN}Testing database connection...${NC}"
 # Retry logic for credential generation test
 RETRY_COUNT=0
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if vault read vso-demo-db/creds/dev-postgres 2>/dev/null; then
+    if vault read master-demo-db/creds/dev-postgres 2>/dev/null; then
         echo -e "${GREEN}✓ Database credentials generated successfully${NC}"
         break
     else

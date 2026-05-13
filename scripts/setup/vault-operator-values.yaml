@@ -12,11 +12,11 @@ controller:
       persistenceModel: direct-encrypted
       storageEncryption:
         enabled: true
-        mount: vso-demo-auth
+        mount: master-demo-auth
         keyName: vso-client-cache
-        namespace: "root"
-        transitMount: vso-demo-transit
+        namespace: "master-demo"
+        transitMount: master-demo-transit
         kubernetes:
-          role: vso-demo-auth-role-operator
+          role: master-demo-auth-role-operator
           serviceAccount: vault-secrets-operator-controller-manager
           tokenAudiences: ["vault"]

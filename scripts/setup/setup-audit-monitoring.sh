@@ -10,6 +10,10 @@ NC='\033[0m' # No Color
 
 echo -e "${GREEN}=== Setting up Vault Audit Monitoring ===${NC}"
 
+# Note: Audit devices are global in Vault and must be configured in root namespace
+# Unset namespace for audit device operations
+unset VAULT_NAMESPACE
+
 # Check if VAULT_ADDR and VAULT_TOKEN are set
 if [ -z "$VAULT_ADDR" ]; then
     echo -e "${YELLOW}VAULT_ADDR not set. Using default: https://127.0.0.1:8200${NC}"

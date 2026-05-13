@@ -10,11 +10,11 @@ metadata:
   name: gitlab-auth
   namespace: gitlab-demo
 spec:
-  namespace: root
+  namespace: master-demo
   method: kubernetes
-  mount: vso-demo-auth
+  mount: master-demo-auth
   kubernetes:
-    role: vso-demo-gitlab-role
+    role: master-demo-gitlab-role
     serviceAccount: gitlab-runner
     audiences:
       - vault

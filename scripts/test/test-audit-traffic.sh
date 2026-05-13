@@ -19,23 +19,23 @@ fi
 
 echo -e "${BLUE}Generating KV operations...${NC}"
 # KV operations
-vault kv put vso-demo-kv/test/data key1=value1 key2=value2 2>/dev/null || true
-vault kv get vso-demo-kv/test/data 2>/dev/null || true
-vault kv get vso-demo-kv/webapp/config 2>/dev/null || true
-vault kv metadata get vso-demo-kv/webapp/config 2>/dev/null || true
+vault kv put master-demo-kv/test/data key1=value1 key2=value2 2>/dev/null || true
+vault kv get master-demo-kv/test/data 2>/dev/null || true
+vault kv get master-demo-kv/webapp/config 2>/dev/null || true
+vault kv metadata get master-demo-kv/webapp/config 2>/dev/null || true
 
 echo -e "${BLUE}Generating database credential requests...${NC}"
 # Database operations
-vault read vso-demo-db/creds/dev-postgres 2>/dev/null || true
-vault read vso-demo-db/creds/dev-postgres 2>/dev/null || true
+vault read master-demo-db/creds/dev-postgres 2>/dev/null || true
+vault read master-demo-db/creds/dev-postgres 2>/dev/null || true
 
 echo -e "${BLUE}Generating PKI operations...${NC}"
 # PKI operations
-vault write vso-demo-pki-issuing/issue/vso-demo-cert-issuer \
+vault write master-demo-pki-issuing/issue/master-demo-cert-issuer \
   common_name="test.local" \
   ttl="30s" 2>/dev/null || true
 
-vault write vso-demo-pki-issuing/issue/vso-demo-cert-issuer \
+vault write master-demo-pki-issuing/issue/master-demo-cert-issuer \
   common_name="demo.local" \
   alt_names="www.demo.local,api.demo.local" \
   ttl="30s" 2>/dev/null || true
@@ -53,8 +53,8 @@ vault list sys/auth 2>/dev/null || true
 
 echo -e "${BLUE}Generating some intentional errors...${NC}"
 # Generate some errors for testing error metrics
-vault kv get vso-demo-kv/nonexistent/path 2>/dev/null || true
-vault read vso-demo-db/creds/nonexistent-role 2>/dev/null || true
+vault kv get master-demo-kv/nonexistent/path 2>/dev/null || true
+vault read master-demo-db/creds/nonexistent-role 2>/dev/null || true
 
 echo -e "${GREEN}✓ Test traffic generated${NC}"
 echo -e "${YELLOW}Check the Grafana dashboard to see the metrics:${NC}"

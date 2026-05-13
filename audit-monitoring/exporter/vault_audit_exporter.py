@@ -158,7 +158,16 @@ class AuditLogProcessor:
         path = request.get('path', 'unknown')
         mount_point = request.get('mount_point', 'unknown')
         mount_type = request.get('mount_type', 'unknown')
-        namespace = request.get('namespace', {}).get('id', 'root')
+        
+        # Extract namespace - try multiple fields
+        namespace_obj = request.get('namespace', {})
+        if isinstance(namespace_obj, dict):
+            # Try 'path' first (e.g., "master-demo/"), then 'id'
+            namespace = namespace_obj.get('path', namespace_obj.get('id', 'root'))
+            # Clean up namespace path (remove trailing slash)
+            namespace = namespace.rstrip('/') if namespace else 'root'
+        else:
+            namespace = str(namespace_obj) if namespace_obj else 'root'
         
         # Cache request for latency calculation
         if request_id:
@@ -188,8 +197,12 @@ class AuditLogProcessor:
         # Update authentication metrics
         if auth:
             display_name = auth.get('display_name', 'unknown')
-            # Extract auth method from display_name (e.g., "vso-demo-auth-...")
-            auth_method = self._extract_auth_method(display_name)
+            # Also check auth metadata for more context
+            auth_metadata = auth.get('metadata', {})
+            auth_accessor = auth.get('accessor', '')
+            
+            # Extract auth method from multiple sources
+            auth_method = self._extract_auth_method(display_name, auth_metadata, auth_accessor)
             
             auth_requests_total.labels(
                 auth_method=auth_method,
@@ -220,7 +233,14 @@ class AuditLogProcessor:
         operation = request.get('operation', 'unknown')
         path = request.get('path', 'unknown')
         mount_type = request.get('mount_type', 'unknown')
-        namespace = request.get('namespace', {}).get('id', 'root')
+        
+        # Extract namespace - try multiple fields (same as _process_request)
+        namespace_obj = request.get('namespace', {})
+        if isinstance(namespace_obj, dict):
+            namespace = namespace_obj.get('path', namespace_obj.get('id', 'root'))
+            namespace = namespace.rstrip('/') if namespace else 'root'
+        else:
+            namespace = str(namespace_obj) if namespace_obj else 'root'
         
         # Determine status
         error = entry.get('error')
@@ -298,16 +318,41 @@ class AuditLogProcessor:
     def _sanitize_display_name(self, name: str) -> str:
         """Sanitize display name to reduce cardinality."""
         # Keep the role/service account pattern but remove namespace details
-        if 'vso-demo-auth' in name:
+        if 'master-demo-auth' in name:
             parts = name.split('-')
             if len(parts) >= 4:
                 return f"{parts[0]}-{parts[1]}-{parts[2]}-<namespace>-<sa>"
         return name[:50]  # Limit length
     
-    def _extract_auth_method(self, display_name: str) -> str:
-        """Extract authentication method from display name."""
-        if 'vso-demo-auth' in display_name:
+    def _extract_auth_method(self, display_name: str, auth_metadata: Dict = None, auth_accessor: str = '') -> str:
+        """Extract authentication method from display name and metadata."""
+        if auth_metadata is None:
+            auth_metadata = {}
+            
+        # Check metadata for auth method (most reliable)
+        if 'role_name' in auth_metadata:
+            # Kubernetes auth has role_name in metadata
             return 'kubernetes'
+        
+        # Check accessor for auth method prefix (e.g., "auth_kubernetes_...")
+        if auth_accessor:
+            if auth_accessor.startswith('auth_kubernetes'):
+                return 'kubernetes'
+            elif auth_accessor.startswith('auth_userpass'):
+                return 'userpass'
+            elif auth_accessor.startswith('auth_github'):
+                return 'github'
+            elif auth_accessor.startswith('auth_cert'):
+                return 'cert'
+        
+        # Fall back to display_name patterns
+        # Kubernetes auth: service accounts contain namespace/sa pattern
+        if '/' in display_name or 'system:serviceaccount' in display_name:
+            return 'kubernetes'
+        elif 'master-demo-auth' in display_name:
+            return 'kubernetes'
+        elif 'userpass' in display_name.lower() or display_name == 'demo':
+            return 'userpass'
         elif 'github' in display_name.lower():
             return 'github'
         elif 'cert' in display_name.lower():
@@ -316,6 +361,7 @@ class AuditLogProcessor:
             return 'token'
         elif 'root' in display_name.lower():
             return 'root'
+        
         return 'unknown'
     
     def _extract_pki_operation(self, path: str) -> Optional[str]:

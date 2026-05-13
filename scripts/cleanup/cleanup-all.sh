@@ -20,7 +20,7 @@ if [ -z "$VAULT_TOKEN" ]; then
 fi
 
 export VAULT_SKIP_VERIFY=true
-unset VAULT_NAMESPACE
+export VAULT_NAMESPACE=master-demo
 
 echo -e "\n${GREEN}Checking Vault connectivity...${NC}"
 if ! vault status > /dev/null 2>&1; then
@@ -32,49 +32,37 @@ echo -e "${GREEN}✓ Vault is accessible${NC}"
 
 echo -e "\n${GREEN}Cleaning all Vault demo configuration...${NC}"
 
-# Clean all roles
-echo -e "${YELLOW}Deleting roles...${NC}"
-vault delete auth/vso-demo-auth/role/vso-demo-gitlab-role 2>/dev/null && echo "✓ GitLab role deleted" || echo "  GitLab role not found"
-vault delete auth/vso-demo-auth/role/vso-demo-pki-cert-issuer 2>/dev/null && echo "✓ PKI role deleted" || echo "  PKI role not found"
-vault delete auth/vso-demo-auth/role/vso-demo-role1 2>/dev/null && echo "✓ Static secrets role deleted" || echo "  Static secrets role not found"
-vault delete auth/vso-demo-auth/role/vso-demo-auth-role 2>/dev/null && echo "✓ Dynamic secrets role deleted" || echo "  Dynamic secrets role not found"
-vault delete auth/vso-demo-auth/role/vso-demo-auth-role-operator 2>/dev/null && echo "✓ Transit operator role deleted" || echo "  Transit operator role not found"
-
-# Clean all policies
-echo -e "${YELLOW}Deleting policies...${NC}"
-vault policy delete vso-demo-gitlab-policy 2>/dev/null && echo "✓ GitLab policy deleted" || echo "  GitLab policy not found"
-vault policy delete vso-demo-pki-issuer 2>/dev/null && echo "✓ PKI policy deleted" || echo "  PKI policy not found"
-vault policy delete vso-demo-webapp 2>/dev/null && echo "✓ Static secrets policy deleted" || echo "  Static secrets policy not found"
-vault policy delete vso-demo-auth-policy-db 2>/dev/null && echo "✓ Dynamic secrets policy deleted" || echo "  Dynamic secrets policy not found"
-vault policy delete vso-demo-auth-policy-operator 2>/dev/null && echo "✓ Transit policy deleted" || echo "  Transit policy not found"
-
-# Clean database leases and configuration
-echo -e "${YELLOW}Cleaning database secrets...${NC}"
-vault lease revoke -force -prefix vso-demo-db/ 2>/dev/null || true
-vault delete vso-demo-db/config/vso-demo-db 2>/dev/null || true
-vault delete vso-demo-db/roles/dev-postgres 2>/dev/null || true
-
-# Disable all secrets engines
-echo -e "${YELLOW}Disabling secrets engines...${NC}"
-vault secrets disable vso-demo-pki-issuing 2>/dev/null && echo "✓ PKI issuing engine disabled" || echo "  PKI issuing engine not found"
-vault secrets disable vso-demo-pki-root 2>/dev/null && echo "✓ PKI root engine disabled" || echo "  PKI root engine not found"
-vault secrets disable vso-demo-kv 2>/dev/null && echo "✓ KV v2 engine disabled" || echo "  KV v2 engine not found"
-vault secrets disable vso-demo-db 2>/dev/null && echo "✓ Database engine disabled" || echo "  Database engine not found"
-vault secrets disable vso-demo-transit 2>/dev/null && echo "✓ Transit engine disabled" || echo "  Transit engine not found"
-
-# Disable auth method
-echo -e "${YELLOW}Disabling auth methods...${NC}"
-vault auth disable vso-demo-auth 2>/dev/null && echo "✓ Kubernetes auth disabled" || echo "  Kubernetes auth not found"
-
-# Disable audit device
+# Disable audit device first (must be done in root namespace - audit devices are global)
 echo -e "${YELLOW}Disabling audit device...${NC}"
+unset VAULT_NAMESPACE
 vault audit disable file 2>/dev/null && echo "✓ File audit device disabled" || echo "  File audit device not found"
+
+# Delete the master-demo namespace (this removes ALL resources inside it automatically)
+# Must be done from root namespace (VAULT_NAMESPACE already unset above)
+echo -e "${YELLOW}Deleting master-demo namespace (removes all auth methods, secrets engines, policies, and roles)...${NC}"
+if vault namespace delete master-demo 2>&1 | grep -q "deleted"; then
+    echo "✓ master-demo namespace deleted with all resources"
+elif vault namespace list 2>/dev/null | grep -q "master-demo/"; then
+    echo -e "${RED}✗ Failed to delete master-demo namespace${NC}"
+    echo "  Try manually: vault namespace delete master-demo"
+else
+    echo "  master-demo namespace not found (already deleted)"
+fi
 
 echo -e "\n${GREEN}✓ All Vault configuration cleaned${NC}"
 
 # Clean up demo namespaces (safer - preserves other user resources in cluster)
 echo -e "\n${GREEN}Cleaning up demo namespaces...${NC}"
 if minikube status | grep -q "host: Running"; then
+    # Clean up VSO Custom Resources first (prevents namespace from getting stuck)
+    echo -e "${YELLOW}Cleaning VSO Custom Resources...${NC}"
+    kubectl delete vaultauth --all -n vault-secrets-operator-system --ignore-not-found=true 2>/dev/null && echo "✓ VaultAuth resources deleted" || echo "  No VaultAuth resources found"
+    kubectl delete vaultconnection --all -n vault-secrets-operator-system --ignore-not-found=true 2>/dev/null && echo "✓ VaultConnection resources deleted" || echo "  No VaultConnection resources found"
+    kubectl delete vaultdynamicsecret --all -n db-demo --ignore-not-found=true 2>/dev/null || true
+    kubectl delete vaultdynamicsecret --all -n pki-demo --ignore-not-found=true 2>/dev/null || true
+    kubectl delete vaultstaticsecret --all -n gitlab-demo --ignore-not-found=true 2>/dev/null || true
+    kubectl delete vaultpkisecret --all -n pki-demo --ignore-not-found=true 2>/dev/null || true
+    
     echo -e "${YELLOW}Deleting demo namespaces...${NC}"
     kubectl delete namespace db-demo --ignore-not-found=true 2>/dev/null && echo "✓ db-demo namespace deleted" || echo "  db-demo namespace not found"
     kubectl delete namespace pki-demo --ignore-not-found=true 2>/dev/null && echo "✓ pki-demo namespace deleted" || echo "  pki-demo namespace not found"

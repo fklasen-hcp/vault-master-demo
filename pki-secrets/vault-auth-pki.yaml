@@ -4,11 +4,11 @@ metadata:
   name: pki-auth
   namespace: pki-demo
 spec:
-  namespace: root
+  namespace: master-demo
   method: kubernetes
-  mount: vso-demo-auth
+  mount: master-demo-auth
   kubernetes:
-    role: vso-demo-pki-cert-issuer
+    role: master-demo-pki-cert-issuer
     serviceAccount: pki-demo-app
     audiences:
       - vault

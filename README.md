@@ -2,10 +2,6 @@
 
 This repository demonstrates how to use HashiCorp's Vault Secrets Operator (VSO) with a local Vault Enterprise server, showcasing static secrets, dynamic database credentials, and PKI certificate auto-renewal in Kubernetes.
 
-## todos
-- move to namespaces or at least one new namespace
-- add telemetry to grafana
-
 ## Overview
 
 This setup uses:
@@ -54,10 +50,13 @@ This setup uses:
          │ Local Vault     │
          │ 127.0.0.1:8200  │
          │                 │
+         │ Namespace:      │
+         │ - master-demo      │
+         │                 │
          │ Engines:        │
-         │ - vso-demo-kv   │
-         │ - vso-demo-db   │
-         │ - vso-demo-pki  │
+         │ - master-demo-kv   │
+         │ - master-demo-db   │
+         │ - master-demo-pki  │
          │                 │
          │ Audit Device:   │
          │ - File audit    │
@@ -101,6 +100,48 @@ Grafana Dashboard
 - **jq** - JSON processor for cleanup scripts (`brew install jq` on macOS)
 - **curl**, **base64**, **openssl** - Standard CLI tools (usually pre-installed)
 - **VAULT_TOKEN** environment variable set
+
+### Vault Namespace
+
+All demo resources are created in the `master-demo` Vault namespace for better organization and isolation. This follows Vault Enterprise best practices for multi-tenancy.
+
+## Accessing Vault
+
+### For UI Demos (Recommended)
+
+Use the username/password login that's automatically created by `make all-local`:
+
+1. Navigate to: `https://127.0.0.1:8200/ui/`
+2. Select **Username** as the authentication method
+3. Enter credentials:
+   - **Username**: `demo`
+   - **Password**: `demo123`
+   - **Mount path**: `userpass` (default, leave as-is)
+   - **Namespace**: `master-demo`
+4. Click **Sign In**
+
+✅ All secrets in the `master-demo` namespace will be immediately visible.
+
+### For CLI Operations
+
+Continue using your root token with the namespace environment variable:
+
+```bash
+export VAULT_ADDR=https://127.0.0.1:8200
+export VAULT_SKIP_VERIFY=true
+export VAULT_TOKEN=your-root-token
+export VAULT_NAMESPACE=master-demo
+
+# Now you can run commands
+vault kv get master-demo-kv/webapp/config
+vault read master-demo-db/creds/dev-postgres
+```
+
+### Summary
+
+- **UI Access**: Use `demo`/`demo123` credentials (created automatically)
+- **CLI Access**: Use your root token with `VAULT_NAMESPACE=master-demo`
+- **Operator/Pods**: Use Kubernetes auth (configured automatically)
 
 **Note:** The audit monitoring feature requires a Vault file audit device writing to `~/audit.log`. The setup script (`make all-local`) will automatically:
 - Enable the audit device
@@ -286,28 +327,37 @@ make postgres-port-forward
 
 ### 1. Static Secrets Demo
 
-Static secrets are stored in Vault's KV v2 engine (`vso-demo-kv`) and automatically synced to Kubernetes:
+Static secrets are stored in Vault's KV v2 engine (`master-demo-kv`) and automatically synced to Kubernetes.
 
-```bash
-# Update secret in Vault
-vault kv put vso-demo-kv/webapp/config username="demo-user" password="demo-pass"
+#### Demo Workflow (Vault UI)
 
-# Wait 30 seconds for sync
-sleep 30
+1. **Access Vault UI** at https://127.0.0.1:8200
+   - Login with username: `demo` / password: `demo123`
+   - Navigate to: **Secrets** → **master-demo-kv** → **webapp/config**
 
-# Verify update in Kubernetes
-kubectl get secret -n app secretkv -o jsonpath="{.data.password}" | base64 -d
-```
+2. **Modify the secret** in the Vault UI:
+   - Click "Create new version"
+   - Update `username` or `password` fields
+   - Click "Save"
+
+3. **Watch automatic sync to Kubernetes** (~30 seconds):
+   ```bash
+   # Monitor the Kubernetes secret for changes
+   watch -n 2 'kubectl get secret -n app secretkv -o jsonpath="{.data.password}" | base64 -d'
+   ```
+
+4. **Observe the change** - The Kubernetes secret updates automatically without pod restarts
 
 **Configuration:**
-- Vault engine: `vso-demo-kv` (KV v2)
+- Vault engine: `master-demo-kv` (KV v2)
 - Vault path: `webapp/config`
 - K8s secret: `secretkv` in namespace `static-demo`
 - Refresh interval: 30 seconds
+- **Demo tip**: Use Vault UI for visual demonstration of secret versioning
 
 ### 2. Dynamic Secrets Demo
 
-Dynamic secrets are generated on-demand by Vault's database engine (`vso-demo-db`) with automatic rotation.
+Dynamic secrets are generated on-demand by Vault's database engine (`master-demo-db`) with automatic rotation.
 
 #### Option A: Interactive Web UI Demo (Recommended)
 
@@ -356,7 +406,7 @@ make db-logs
 ```
 
 **Configuration:**
-- Vault engine: `vso-demo-db` (PostgreSQL)
+- Vault engine: `master-demo-db` (PostgreSQL)
 - Vault role: `dev-postgres`
 - K8s secret: `vso-db-demo` in namespace `db-demo`
 - TTL: 30 seconds (demo-optimized)
@@ -369,9 +419,53 @@ kubectl delete secret -n db-demo vso-db-demo
 # VSO will recreate it immediately with new credentials
 ```
 
+#### Option C: Database Visualization with pgAdmin
+
+Complement the demo by showing how dynamic roles are actually created and removed in PostgreSQL:
+
+**Setup:**
+```bash
+# Access pgAdmin (if deployed)
+make postgres-port-forward
+# Open: http://localhost:5050
+# Login: admin@admin.com / admin
+```
+
+**Connect to PostgreSQL in pgAdmin:**
+1. Right-click **Servers** → **Register** → **Server**
+2. **General tab**: Name: `Demo PostgreSQL`
+3. **Connection tab**:
+   - Host: `postgres.postgres.svc.cluster.local`
+   - Port: `5432`
+   - Database: `mydb`
+   - Username: `postgres`
+   - Password: `password`
+4. Click **Save**
+
+**Monitor Dynamic Roles in Real-Time:**
+1. Navigate to: **Servers** → **Demo PostgreSQL** → **Login/Group Roles**
+2. Right-click **Login/Group Roles** → **Refresh** periodically
+3. Watch roles like `v-kubernet-dev-post-<random>` appear and disappear
+4. Observe automatic cleanup when credentials expire (~30 seconds)
+
+**Enhanced Demo Flow:**
+1. **Web UI** (http://localhost:8090) - Shows current username/password
+2. **pgAdmin** - Shows the corresponding PostgreSQL role exists in the database
+3. **Wait ~30 seconds** for credential rotation
+4. **Web UI** - Displays new credentials
+5. **pgAdmin** - Refresh to see old role removed, new role created
+6. **Result** - Visual proof that Vault automatically manages database user lifecycle
+
+**What This Demonstrates:**
+- ✅ Dynamic credentials are real PostgreSQL users, not just secrets
+- ✅ Vault creates users on-demand with proper permissions
+- ✅ Expired credentials are automatically revoked from the database
+- ✅ No manual cleanup required - Vault handles the entire lifecycle
+- ✅ Applications never see expired credentials due to proactive rotation
+
 ### 3. PKI Certificate Auto-Renewal Demo
 
-Certificates are automatically generated and renewed by Vault's PKI engine (`vso-demo-pki-issuing`):
+Certificates are automatically generated and renewed by Vault's PKI engine (`master-demo-pki-issuing`):
 
 ```bash
 # Watch certificate expiration in real-time
@@ -389,8 +483,8 @@ make pki-port-forward
 ```
 
 **Configuration:**
-- Vault engines: `vso-demo-pki-root` (Root CA), `vso-demo-pki-issuing` (Issuing CA)
-- Vault role: `vso-demo-cert-issuer`
+- Vault engines: `master-demo-pki-root` (Root CA), `master-demo-pki-issuing` (Issuing CA)
+- Vault role: `master-demo-cert-issuer`
 - K8s secret: `pki-demo-tls` in namespace `pki-demo`
 - Certificate TTL: 30 seconds (demo-optimized)
 - Auto-renewal: ~25 seconds (5s before expiry)
@@ -454,9 +548,9 @@ Login:
 - Password: `VaultDemoStr0ng!2026`
 
 **Configuration**
-- Vault engine: `vso-demo-kv`
+- Vault engine: `master-demo-kv`
 - Vault path: `webapp/config`
-- Vault role: `vso-demo-gitlab-role`
+- Vault role: `master-demo-gitlab-role`
 - Kubernetes namespace: `gitlab-demo`
 - Synced secret: `secretkv`
 - Refresh interval: `30s`
@@ -472,7 +566,7 @@ Login:
    - `/vault/secrets/password`
 5. Update Vault:
    ```bash
-   vault kv put vso-demo-kv/webapp/config username="new-user" password="new-pass"
+   vault kv put master-demo-kv/webapp/config username="new-user" password="new-pass"
    ```
 6. Wait about 30 seconds for VSO sync
 7. Re-run the pipeline
@@ -715,12 +809,12 @@ VSO connects to your local Vault using `host.minikube.internal`, which resolves 
 
 1. Service accounts in Kubernetes have associated service account tokens (JWTs)
 2. VSO uses the Kubernetes auth method to authenticate with Vault
-3. Vault validates the service account tokens with the Kubernetes API (via `vso-demo-auth` mount)
+3. Vault validates the service account tokens with the Kubernetes API (via `master-demo-auth` mount)
 4. Upon successful validation, Vault issues Vault tokens with appropriate policies
 
 ### Static Secrets Flow
 
-1. Secrets stored in Vault's KV v2 engine (`vso-demo-kv/webapp/config`)
+1. Secrets stored in Vault's KV v2 engine (`master-demo-kv/webapp/config`)
 2. `VaultStaticSecret` CRD tells VSO what to sync
 3. VSO authenticates using `VaultAuth` CRD
 4. VSO reads secret from Vault and creates K8s secret `secretkv` in `static-demo` namespace
@@ -729,7 +823,7 @@ VSO connects to your local Vault using `host.minikube.internal`, which resolves 
 
 ### Dynamic Secrets Flow
 
-1. `VaultDynamicSecret` CRD requests credentials from `vso-demo-db`
+1. `VaultDynamicSecret` CRD requests credentials from `master-demo-db`
 2. VSO authenticates and requests credentials from Vault
 3. Vault generates new PostgreSQL user with 30s TTL
 4. VSO creates K8s secret `vso-db-demo` in `db-demo` namespace with credentials
@@ -738,7 +832,7 @@ VSO connects to your local Vault using `host.minikube.internal`, which resolves 
 
 ### PKI Certificate Flow
 
-1. `VaultPKISecret` CRD requests certificate from `vso-demo-pki-issuing`
+1. `VaultPKISecret` CRD requests certificate from `master-demo-pki-issuing`
 2. VSO authenticates and requests certificate from Vault
 3. Vault generates certificate signed by Issuing CA (30s TTL)
 4. VSO creates K8s secret with certificate, private key, and CA chain
@@ -748,36 +842,36 @@ VSO connects to your local Vault using `host.minikube.internal`, which resolves 
 
 ### Transit Encryption
 
-VSO uses Vault's Transit engine (`vso-demo-transit`) to encrypt its client cache:
+VSO uses Vault's Transit engine (`master-demo-transit`) to encrypt its client cache:
 - Cache encryption key `vso-client-cache` stored in Vault
 - Adds security layer for cached secrets
 - Even if Kubernetes is compromised, cache is encrypted
 
-## Vault Resources (with vso-demo- prefix)
+## Vault Resources (with master-demo- prefix)
 
-All Vault resources use the `vso-demo-` prefix for easy identification:
+All Vault resources use the `master-demo-` prefix for easy identification:
 
 ### Auth Methods
-- `vso-demo-auth` - Kubernetes authentication mount
+- `master-demo-auth` - Kubernetes authentication mount
 
 ### Secrets Engines
-- `vso-demo-kv` - KV v2 for static secrets
-- `vso-demo-db` - PostgreSQL database for dynamic credentials
-- `vso-demo-pki-root` - Root CA (10-year validity)
-- `vso-demo-pki-issuing` - Issuing CA (1-year validity)
-- `vso-demo-transit` - Transit encryption for VSO cache
+- `master-demo-kv` - KV v2 for static secrets
+- `master-demo-db` - PostgreSQL database for dynamic credentials
+- `master-demo-pki-root` - Root CA (10-year validity)
+- `master-demo-pki-issuing` - Issuing CA (1-year validity)
+- `master-demo-transit` - Transit encryption for VSO cache
 
 ### Policies
-- `vso-demo-webapp` - Read access to static secrets
-- `vso-demo-auth-policy-db` - Read access to dynamic credentials
-- `vso-demo-pki-issuer` - Issue/sign/revoke certificates
-- `vso-demo-auth-policy-operator` - VSO operator transit encryption
+- `master-demo-webapp` - Read access to static secrets
+- `master-demo-auth-policy-db` - Read access to dynamic credentials
+- `master-demo-pki-issuer` - Issue/sign/revoke certificates
+- `master-demo-auth-policy-operator` - VSO operator transit encryption
 
 ### Roles
-- `vso-demo-role1` - Static secrets role
-- `vso-demo-auth-role` - Dynamic secrets role
-- `vso-demo-pki-cert-issuer` - PKI certificate issuance role
-- `vso-demo-auth-role-operator` - VSO operator role
+- `master-demo-role1` - Static secrets role
+- `master-demo-auth-role` - Dynamic secrets role
+- `master-demo-pki-cert-issuer` - PKI certificate issuance role
+- `master-demo-auth-role-operator` - VSO operator role
 
 ## Configuration Files
 
@@ -876,9 +970,13 @@ make clean-all-local        # Remove all demo Vault config and delete the Miniku
 
 ### Complete Cleanup (Remove Everything)
 ```bash
-# Remove all demo Vault configuration and delete the Minikube cluster
+# Remove all demo Vault configuration and delete demo namespaces
 make clean-all-local
 ```
+
+> **Note:** The cleanup script deletes the `vault-secrets-operator-system` namespace, which can take several minutes to terminate due to finalizers. If you don't need to preserve the Minikube cluster for other purposes, you can speed up cleanup by:
+> 1. Ctrl+C to terminate the cleanup script after Vault resources are removed
+> 2. Run `minikube delete` to completely remove the cluster (much faster)
 
 ### Manual Cleanup
 ```bash
@@ -886,22 +984,22 @@ make clean-all-local
 minikube delete
 
 # Vault configuration (all demos)
-vault delete auth/vso-demo-auth/role/vso-demo-gitlab-role
-vault delete auth/vso-demo-auth/role/vso-demo-role1
-vault delete auth/vso-demo-auth/role/vso-demo-auth-role
-vault delete auth/vso-demo-auth/role/vso-demo-auth-role-operator
-vault delete auth/vso-demo-auth/role/vso-demo-pki-cert-issuer
-vault policy delete vso-demo-gitlab-policy
-vault policy delete vso-demo-webapp
-vault policy delete vso-demo-auth-policy-db
-vault policy delete vso-demo-pki-issuer
-vault policy delete vso-demo-auth-policy-operator
-vault secrets disable vso-demo-kv
-vault secrets disable vso-demo-db
-vault secrets disable vso-demo-pki-root
-vault secrets disable vso-demo-pki-issuing
-vault secrets disable vso-demo-transit
-vault auth disable vso-demo-auth
+vault delete auth/master-demo-auth/role/master-demo-gitlab-role
+vault delete auth/master-demo-auth/role/master-demo-role1
+vault delete auth/master-demo-auth/role/master-demo-auth-role
+vault delete auth/master-demo-auth/role/master-demo-auth-role-operator
+vault delete auth/master-demo-auth/role/master-demo-pki-cert-issuer
+vault policy delete master-demo-gitlab-policy
+vault policy delete master-demo-webapp
+vault policy delete master-demo-auth-policy-db
+vault policy delete master-demo-pki-issuer
+vault policy delete master-demo-auth-policy-operator
+vault secrets disable master-demo-kv
+vault secrets disable master-demo-db
+vault secrets disable master-demo-pki-root
+vault secrets disable master-demo-pki-issuing
+vault secrets disable master-demo-transit
+vault auth disable master-demo-auth
 ```
 
 ## Advantages of Local Vault
@@ -958,10 +1056,10 @@ make postgres-port-forward &
 kubectl port-forward -n postgres svc/postgres-postgresql 5432:5432 &
 
 # Test Vault can connect to PostgreSQL
-vault read vso-demo-db/creds/dev-postgres
+vault read master-demo-db/creds/dev-postgres
 
 # Check if database engine is configured
-vault read vso-demo-db/config/vso-demo-db
+vault read master-demo-db/config/master-demo-db
 ```
 
 ### PKI Certificates Not Renewing
@@ -974,10 +1072,10 @@ make pki-status
 kubectl describe vaultpkisecret pki-demo-cert -n pki-demo
 
 # Verify PKI engines are configured
-vault read vso-demo-pki-issuing/roles/vso-demo-cert-issuer
+vault read master-demo-pki-issuing/roles/master-demo-cert-issuer
 
 # Test certificate issuance manually
-vault write vso-demo-pki-issuing/issue/vso-demo-cert-issuer common_name="test.local" ttl="30s"
+vault write master-demo-pki-issuing/issue/master-demo-cert-issuer common_name="test.local" ttl="30s"
 
 # Check application logs
 make pki-logs

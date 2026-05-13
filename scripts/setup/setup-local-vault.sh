@@ -36,9 +36,16 @@ fi
 
 echo -e "${GREEN}✓ Vault is accessible and unsealed${NC}"
 
-# Use root namespace (no child namespace)
-echo -e "\n${GREEN}Using Vault root namespace${NC}"
-unset VAULT_NAMESPACE
+# Create and use master-demo namespace
+echo -e "\n${GREEN}Creating master-demo namespace...${NC}"
+if vault namespace create master-demo 2>/dev/null; then
+    echo "✓ Namespace 'master-demo' created"
+else
+    echo "Namespace 'master-demo' already exists"
+fi
+
+export VAULT_NAMESPACE=master-demo
+echo -e "${GREEN}✓ Using namespace: $VAULT_NAMESPACE${NC}"
 
 # Get Kubernetes configuration
 echo -e "\n${GREEN}Getting Kubernetes configuration...${NC}"
@@ -81,13 +88,13 @@ TOKEN_REVIEWER_JWT=$(kubectl create token vault-auth-reviewer -n vault-secrets-o
 
 # Enable Kubernetes auth
 echo -e "\n${GREEN}Enabling Kubernetes authentication...${NC}"
-if vault auth enable -path vso-demo-auth kubernetes 2>/dev/null; then
+if vault auth enable -path master-demo-auth kubernetes 2>/dev/null; then
     echo "✓ Kubernetes auth method enabled"
     sleep 2
 else
     echo "Auth method already enabled or failed to enable"
     # Check if it exists
-    if vault auth list | grep -q "vso-demo-auth"; then
+    if vault auth list | grep -q "master-demo-auth"; then
         echo "✓ Auth method exists"
     else
         echo -e "${RED}ERROR: Failed to enable Kubernetes auth method${NC}"
@@ -98,69 +105,180 @@ fi
 # Configure Kubernetes auth
 echo -e "\n${GREEN}Configuring Kubernetes authentication...${NC}"
 echo "Kubernetes Host: $KUBE_HOST"
-vault write auth/vso-demo-auth/config \
+vault write auth/master-demo-auth/config \
     kubernetes_host="$KUBE_HOST" \
     kubernetes_ca_cert="$KUBE_CA_CERT" \
     token_reviewer_jwt="$TOKEN_REVIEWER_JWT"
 
 # Enable KV v2 secrets engine (used by GitLab demo)
 echo -e "\n${GREEN}Enabling KV v2 secrets engine...${NC}"
-vault secrets enable -path=vso-demo-kv kv-v2 2>/dev/null || echo "KV v2 already enabled"
+vault secrets enable -path=master-demo-kv kv-v2 2>/dev/null || echo "KV v2 already enabled"
 
 # Setup for dynamic secrets (PostgreSQL)
 echo -e "\n${GREEN}Setting up dynamic secrets configuration...${NC}"
 
 # Enable database secrets engine
-vault secrets enable -path=vso-demo-db database 2>/dev/null || echo "Database secrets engine already enabled"
+vault secrets enable -path=master-demo-db database 2>/dev/null || echo "Database secrets engine already enabled"
 
 # Note: PostgreSQL connection will be configured after PostgreSQL is deployed
 echo -e "${YELLOW}Note: PostgreSQL database connection will be configured after PostgreSQL pod is deployed${NC}"
 
 # Create policy for dynamic secrets
-vault policy write vso-demo-auth-policy-db - <<EOF
-path "vso-demo-db/creds/dev-postgres" {
+vault policy write master-demo-auth-policy-db - <<EOF
+path "master-demo-db/creds/dev-postgres" {
    capabilities = ["read"]
 }
 EOF
 
 # Create role for dynamic secrets
-vault write auth/vso-demo-auth/role/vso-demo-auth-role \
+vault write auth/master-demo-auth/role/master-demo-auth-role \
    bound_service_account_names=demo-dynamic-app \
    bound_service_account_namespaces=db-demo \
    token_ttl=0 \
    token_period=120 \
-   token_policies=vso-demo-auth-policy-db \
+   token_policies=master-demo-auth-policy-db \
    audience=vault
 
 # Setup transit encryption for VSO client cache
 echo -e "\n${GREEN}Setting up transit encryption for VSO...${NC}"
-vault secrets enable -path=vso-demo-transit transit 2>/dev/null || echo "Transit engine already enabled"
-vault write -force vso-demo-transit/keys/vso-client-cache
+vault secrets enable -path=master-demo-transit transit 2>/dev/null || echo "Transit engine already enabled"
+vault write -force master-demo-transit/keys/vso-client-cache
 
-vault policy write vso-demo-auth-policy-operator - <<EOF
-path "vso-demo-transit/encrypt/vso-client-cache" {
+vault policy write master-demo-auth-policy-operator - <<EOF
+path "master-demo-transit/encrypt/vso-client-cache" {
    capabilities = ["create", "update"]
 }
-path "vso-demo-transit/decrypt/vso-client-cache" {
+path "master-demo-transit/decrypt/vso-client-cache" {
    capabilities = ["create", "update"]
 }
 EOF
 
-vault write auth/vso-demo-auth/role/vso-demo-auth-role-operator \
+vault write auth/master-demo-auth/role/master-demo-auth-role-operator \
    bound_service_account_names=vault-secrets-operator-controller-manager \
    bound_service_account_namespaces=vault-secrets-operator-system \
    token_ttl=0 \
    token_period=120 \
-   token_policies=vso-demo-auth-policy-operator \
+   token_policies=master-demo-auth-policy-operator \
    audience=vault
 
+# Setup userpass auth for UI access
+echo -e "\n${GREEN}Setting up userpass authentication for UI access...${NC}"
+vault auth enable -path=userpass userpass 2>/dev/null || echo "Userpass auth already enabled"
+
+# Create a policy that allows full access to the master-demo namespace
+vault policy write master-demo-admin - <<EOF
+# Allow authentication and token operations
+path "auth/token/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+
+path "auth/token/lookup-self" {
+  capabilities = ["read"]
+}
+
+path "auth/token/renew-self" {
+  capabilities = ["update"]
+}
+
+# Allow listing auth methods
+path "sys/auth" {
+  capabilities = ["read", "list"]
+}
+
+# Allow listing secrets engines
+path "sys/mounts" {
+  capabilities = ["read", "list"]
+}
+
+# Allow listing policies
+path "sys/policies/acl" {
+  capabilities = ["list"]
+}
+
+path "sys/policies/acl/*" {
+  capabilities = ["read", "list"]
+}
+
+# KV v2 secrets engine - full access
+path "master-demo-kv/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+
+path "master-demo-kv/data/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+
+path "master-demo-kv/metadata/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+
+# Database secrets engine - full access
+path "master-demo-db/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+
+# PKI secrets engines - full access
+path "master-demo-pki-root/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+
+path "master-demo-pki-issuing/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+
+# Transit secrets engine - full access
+path "master-demo-transit/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+
+# Auth methods in this namespace
+path "auth/master-demo-auth/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+
+path "auth/userpass/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+
+# Allow identity operations for the UI
+path "identity/*" {
+  capabilities = ["create", "read", "update", "delete", "list"]
+}
+
+# Wildcard for any other paths
+path "*" {
+  capabilities = ["create", "read", "update", "delete", "list", "sudo"]
+}
+EOF
+
+# Create a demo user
+vault write auth/userpass/users/demo \
+    password=demo123 \
+    policies=master-demo-admin
+
+echo -e "${GREEN}✓ Userpass auth configured${NC}"
+echo -e "${GREEN}✓ Demo user created (username: demo, password: demo123)${NC}"
+
 echo -e "\n${GREEN}=== Vault Configuration Complete ===${NC}"
-echo -e "${GREEN}✓ Using root namespace${NC}"
+echo -e "${GREEN}✓ Using namespace: master-demo${NC}"
 echo -e "${GREEN}✓ Kubernetes auth enabled and configured${NC}"
 echo -e "${GREEN}✓ KV v2 secrets engine enabled${NC}"
 echo -e "${GREEN}✓ Policies created${NC}"
 echo -e "${GREEN}✓ Roles configured${NC}"
 echo -e "${GREEN}✓ Transit encryption configured${NC}"
+echo -e "${GREEN}✓ Userpass auth enabled for UI access${NC}"
+echo ""
+echo -e "${YELLOW}Vault UI Access (Option 1 - Recommended):${NC}"
+echo "  URL: https://127.0.0.1:8200/ui/"
+echo "  Method: Username"
+echo "  Username: demo"
+echo "  Password: demo123"
+echo "  Namespace: master-demo"
+echo ""
+echo -e "${YELLOW}Vault UI Access (Option 2 - Root Token):${NC}"
+echo "  URL: https://127.0.0.1:8200/ui/vault/secrets?namespace=master-demo"
+echo "  Method: Token"
+echo "  Token: \$VAULT_TOKEN"
 echo ""
 echo -e "${YELLOW}Next steps:${NC}"
 echo "  Run 'make all-local' to deploy all demos, or run individual targets:"

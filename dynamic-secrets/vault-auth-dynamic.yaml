@@ -4,11 +4,11 @@ metadata:
   name: dynamic-auth
   namespace: db-demo
 spec:
-  namespace: root
+  namespace: master-demo
   method: kubernetes
-  mount: vso-demo-auth
+  mount: master-demo-auth
   kubernetes:
-    role: vso-demo-auth-role
+    role: master-demo-auth-role
     serviceAccount: demo-dynamic-app
     audiences:
       - vault

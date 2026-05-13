@@ -12,7 +12,7 @@ This pipeline showcases:
 ## Architecture
 
 ```
-Vault (vso-demo-kv/webapp/config)
+Vault (master-demo-kv/webapp/config)
     ↓
 VSO syncs to Kubernetes Secret (secretkv)
     ↓
@@ -39,7 +39,7 @@ Password from Vault: static-password
 
 1. Update the secret in Vault:
    ```bash
-   vault kv put vso-demo-kv/webapp/config \
+   vault kv put master-demo-kv/webapp/config \
      username="updated-user" \
      password="updated-pass"
    ```
@@ -53,7 +53,7 @@ Password from Vault: static-password
 ## Configuration
 
 ### Vault Path
-- **Engine**: `vso-demo-kv` (KV v2)
+- **Engine**: `master-demo-kv` (KV v2)
 - **Path**: `webapp/config`
 - **Keys**: `username`, `password`
 
