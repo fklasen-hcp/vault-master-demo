@@ -61,11 +61,15 @@ This setup uses:
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │ Audit Monitoring Stack (audit-monitoring namespace)     │  │
 │  │                                                          │  │
-│  │  Vault Audit Exporter → Prometheus → Grafana            │  │
+│  │  Vault Audit Exporter → Prometheus ← Vault Telemetry   │  │
 │  │  - Tails ~/audit.log via hostPath (/host-home)         │  │
 │  │  - Parses JSON audit entries                           │  │
 │  │  - Exposes Prometheus metrics (10s scrape)             │  │
-│  │  - Real-time dashboard (15 panels, 5s refresh)         │  │
+│  │  - Scrapes Vault /v1/sys/metrics (15s, optional)       │  │
+│  │                      ↓                                   │  │
+│  │                   Grafana                                │  │
+│  │  - Audit dashboard (15 panels, 5s refresh)             │  │
+│  │  - Telemetry dashboard (15 panels, 10s refresh)        │  │
 │  └──────────────────────────────────────────────────────────┘  │
 └─────────────────┼───────────────────────────────────────────────┘
                   │
@@ -89,31 +93,49 @@ This setup uses:
          │ - File audit    │
          │ - ~/audit.log   │
          │ - Auto-rotation │
+         │                 │
+         │ Telemetry:      │
+         │ - /v1/sys/metrics│
+         │ - Prometheus fmt│
+         │ - 5m retention  │
+         │ - Optional      │
          └─────────────────┘
 ```
 
-### Audit Monitoring Flow
+### Monitoring Architecture
 
 ```
-Local Vault (~/audit.log)
-         │ JSON audit logs
-         ▼
-Vault Audit Exporter (Python)
-  - Tails log file via hostPath
-  - Parses JSON entries
-  - Calculates latency
-  - Exposes metrics on :9091
-         │ HTTP scrape (10s)
-         ▼
-Prometheus
-  - 15-day retention
-  - Port: 9090
-         │ PromQL queries
-         ▼
-Grafana Dashboard
-  - 15 panels
-  - 5-second refresh
-  - Port: 3000
+┌─────────────────────────────────────────────────────────┐
+│ Local Vault (127.0.0.1:8200)                            │
+│                                                          │
+│  ~/audit.log          /v1/sys/metrics (optional)        │
+│  (JSON logs)          (Prometheus format)               │
+└──────┬────────────────────────┬─────────────────────────┘
+       │                        │
+       │ Tail via hostPath      │ HTTPS + Bearer token
+       │                        │
+       ▼                        ▼
+┌──────────────────┐    ┌──────────────────┐
+│ Audit Exporter   │    │ Prometheus       │
+│ (Python)         │───▶│ - Scrapes both   │
+│ - Parses logs    │    │ - 15d retention  │
+│ - Metrics :9091  │    │ - Port: 9090     │
+└──────────────────┘    └────────┬─────────┘
+                                 │
+                                 │ PromQL
+                                 ▼
+                        ┌──────────────────┐
+                        │ Grafana :3000    │
+                        │                  │
+                        │ 1. Audit         │
+                        │    Dashboard     │
+                        │    (15 panels)   │
+                        │                  │
+                        │ 2. Telemetry     │
+                        │    Dashboard     │
+                        │    (15 panels)   │
+                        │    [if enabled]  │
+                        └──────────────────┘
 ```
 
 ## Prerequisites
@@ -127,6 +149,37 @@ Grafana Dashboard
 - **jq** - JSON processor for cleanup scripts (`brew install jq` on macOS)
 - **curl**, **base64**, **openssl** - Standard CLI tools (usually pre-installed)
 - **VAULT_TOKEN** environment variable set
+
+### Vault Configuration Requirements
+
+#### Required: Audit Device
+File audit device must be enabled (automatically configured by setup scripts):
+```hcl
+# Enabled via: vault audit enable file file_path="$HOME/audit.log"
+```
+
+#### Optional: Telemetry (Recommended)
+For the telemetry monitoring dashboard, add to your Vault configuration file:
+```hcl
+telemetry {
+  prometheus_retention_time = "5m"
+  disable_hostname = false
+}
+```
+
+**Security Note**: The setup script will store your `$VAULT_TOKEN` (typically the root token) as a Kubernetes secret named `vault-token` in the `audit-monitoring` namespace. This token is used by Prometheus to authenticate to Vault's telemetry endpoint (`/v1/sys/metrics`). The secret is mounted read-only into the Prometheus pod.
+
+**Important**:
+- For production environments, create a dedicated token with limited permissions (only `sys/metrics` read access)
+- The token is stored in plaintext in the Kubernetes secret (base64 encoded)
+- Consider using Vault's Kubernetes auth method for more secure token management in production
+
+**Note**: If telemetry is not enabled, the setup will skip telemetry monitoring and deploy audit monitoring only. The setup process is non-blocking and will complete successfully either way.
+
+To verify telemetry is working:
+```bash
+make check-vault-telemetry
+```
 
 ### Vault Namespace
 
@@ -237,6 +290,8 @@ export VAULT_ADDR=https://127.0.0.1:8200
 export VAULT_SKIP_VERIFY=true
 export VAULT_TOKEN=your-vault-root-token
 ```
+
+> **Important:** Do NOT set `VAULT_NAMESPACE` at this stage. The setup scripts will automatically switch to the `master-demo` namespace when needed. Setting `VAULT_NAMESPACE=master-demo` here will cause setup and cleanup scripts to fail, as they need to operate from the root namespace for certain operations (creating/deleting namespaces, enabling audit devices, etc.).
 
 ### 3. Deploy Everything
 
@@ -577,7 +632,9 @@ make clean-pki-all
 
 ### 4. Audit Monitoring Demo
 
-Real-time monitoring and visualization of all Vault operations through Prometheus and Grafana.
+Real-time monitoring and visualization of Vault operations through Prometheus and Grafana, with two complementary dashboards:
+- **Audit Dashboard** - Security and compliance monitoring from audit logs
+- **Telemetry Dashboard** - Performance and health metrics (optional, requires telemetry enabled)
 
 **Access the dashboards:**
 - **Grafana**: http://localhost:3000 (admin/admin)
@@ -586,6 +643,11 @@ Real-time monitoring and visualization of all Vault operations through Prometheu
 **Generate test traffic:**
 ```bash
 make test-audit-traffic
+```
+
+**Check telemetry availability:**
+```bash
+make check-vault-telemetry
 ```
 
 #### Components
@@ -598,20 +660,32 @@ make test-audit-traffic
 - Handles log rotation gracefully
 - Resource usage: ~50-100MB memory, <5% CPU
 
-**2. Prometheus**
-- Scrapes exporter every 10 seconds (near real-time)
+**2. Vault Telemetry Scraper (Optional)**
+- Scrapes `/v1/sys/metrics` endpoint directly from Vault
+- Requires telemetry enabled in Vault config
+- Provides native Vault performance metrics
+- Scrapes every 15 seconds
+- Uses VAULT_TOKEN for authentication
+
+**3. Prometheus**
+- Scrapes audit exporter every 10 seconds (near real-time)
+- Scrapes Vault telemetry every 15 seconds (if enabled)
 - 15-day retention
 - Port: 9090
 - Resource usage: ~512MB memory, ~200m CPU
 
-**3. Grafana**
-- Pre-configured dashboard with 15 panels
-- 5-second refresh rate
+**4. Grafana**
+- Two pre-configured dashboards
+- Audit: 15 panels, 5-second refresh
+- Telemetry: 15 panels, 10-second refresh (if enabled)
 - Port: 3000
 - Default credentials: admin/admin
 - Resource usage: ~256MB memory, ~100m CPU
 
-#### Dashboard Panels (15 Total)
+#### Available Dashboards
+
+##### 1. Vault Audit Monitoring (Always Available)
+Security and compliance monitoring from audit logs - 15 panels:
 
 1. **Total Requests** - Last 15 minutes
 2. **Error Rate** - With warning/critical thresholds
@@ -629,8 +703,37 @@ make test-audit-traffic
 14. **Request Latency** - p50, p95, p99 percentiles
 15. **Exporter Health** - Monitoring system status
 
+##### 2. Vault Telemetry & Performance (Optional - Requires Telemetry Enabled)
+Native Vault performance and health metrics - 15 panels:
+
+1. **Total API Requests** - Cumulative request count
+2. **Average Request Latency** - p99 latency with thresholds
+3. **Vault Seal Status** - Unsealed/sealed indicator
+4. **Leader Elections** - Cluster stability tracking
+5. **Request Rate Over Time** - Operations per second
+6. **Request Latency (p50, p99)** - Performance distribution
+7. **Token Operations** - Token creates and lookups
+8. **Policy Evaluations** - Access control activity
+9. **Secrets Engine Operations (KV)** - KV read/write rates
+10. **Database Operations** - DB connection lifecycle
+11. **Audit Log Requests** - Audit system health
+12. **Audit Log Failures** - Compliance monitoring
+13. **Unsealed Status Timeline** - Historical seal status
+14. **Audit Activity Over Time** - Audit throughput
+15. **Core Metrics Summary** - Key metrics table
+
+**Key Metrics Tracked:**
+- Core health (request rate, latency, leader elections)
+- Seal/unseal status
+- Authentication activity by method
+- Policy evaluations
+- Secrets engine usage (reads/writes/errors)
+- Audit log metrics
+- Performance replication (Enterprise)
+
 #### Metrics Exposed
 
+**Audit Metrics (from exporter):**
 - `vault_audit_requests_total` - Request counts by operation, path, mount type
 - `vault_audit_responses_total` - Response status codes
 - `vault_audit_auth_requests_total` - Authentication activity
@@ -640,6 +743,19 @@ make test-audit-traffic
 - `vault_audit_request_duration_seconds` - Latency histogram
 - `vault_audit_lease_operations_total` - Lease operations
 - `vault_audit_pki_operations_total` - PKI-specific operations
+
+**Telemetry Metrics (from Vault, if enabled):**
+- `vault_core_handle_request_count` - Total API requests
+- `vault_core_handle_request` - Request latency (quantiles)
+- `vault_core_unsealed` - Seal status (1=unsealed, 0=sealed)
+- `vault_core_leadership_setup_failed` - Leader election failures
+- `vault_token_create_count` - Token creation rate
+- `vault_token_lookup_count` - Token lookup rate
+- `vault_policy_get_policy` - Policy evaluation rate
+- `vault_secret_kv_count` - KV operations
+- `vault_database_*` - Database operations
+- `vault_audit_log_request` - Audit log entries
+- `vault_audit_log_request_failure` - Audit failures
 
 #### Configuration
 
@@ -733,6 +849,76 @@ make prometheus-port-forward
 # Check Grafana datasource configuration
 # Grafana → Configuration → Data Sources → Prometheus
 # Should point to: http://prometheus:9090
+
+**Telemetry dashboard not appearing:**
+```bash
+# Check if telemetry was enabled during setup
+make check-vault-telemetry
+
+# If telemetry is now enabled, redeploy monitoring
+make clean-audit-monitoring
+make setup-audit-monitoring
+
+# Verify Prometheus is scraping Vault
+make prometheus-port-forward
+# Open: http://localhost:9090/targets
+# Look for "vault-telemetry" job
+```
+
+**Telemetry metrics showing "No Data":**
+```bash
+# Verify Vault telemetry endpoint is accessible with demo user
+export VAULT_NAMESPACE=master-demo
+DEMO_TOKEN=$(vault login -method=userpass username=demo password=demo123 -token-only)
+curl -H "X-Vault-Token: $DEMO_TOKEN" \
+  https://127.0.0.1:8200/v1/sys/metrics?format=prometheus | head -20
+
+# Check if vault-token secret exists
+kubectl get secret vault-token -n audit-monitoring
+
+# If missing or expired, recreate it (setup script will create a new 1-year token)
+make clean-audit-monitoring
+make setup-audit-monitoring
+
+# Or manually create a new token:
+DEMO_TOKEN=$(vault login -method=userpass username=demo password=demo123 -token-only)
+NEW_TOKEN=$(VAULT_TOKEN=$DEMO_TOKEN vault token create \
+  -policy=master-demo-admin \
+  -ttl=8760h \
+  -renewable=true \
+  -display-name="prometheus-telemetry" \
+  -format=json | jq -r '.auth.client_token')
+
+kubectl create secret generic vault-token \
+  --from-literal=token="$NEW_TOKEN" \
+  -n audit-monitoring \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# Restart Prometheus to pick up the new secret
+kubectl rollout restart deployment/prometheus -n audit-monitoring
+```
+
+**Token expired (after 1 year):**
+The setup script creates a 1-year renewable token. To renew or recreate:
+```bash
+# Option 1: Redeploy monitoring (creates new token)
+make clean-audit-monitoring && make setup-audit-monitoring
+
+# Option 2: Manual renewal (if token is still renewable)
+kubectl get secret vault-token -n audit-monitoring -o jsonpath='{.data.token}' | base64 -d | \
+  xargs -I {} vault token renew {}
+```
+
+**To enable telemetry after initial setup:**
+1. Add telemetry stanza to your Vault config:
+   ```hcl
+   telemetry {
+     prometheus_retention_time = "5m"
+     disable_hostname = false
+   }
+   ```
+2. Restart Vault
+3. Redeploy monitoring: `make clean-audit-monitoring && make setup-audit-monitoring`
 ```
 
 #### Performance and Scalability

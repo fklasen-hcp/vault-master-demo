@@ -40,11 +40,74 @@ vault audit disable file 2>/dev/null && echo "✓ File audit device disabled" ||
 # Delete the master-demo namespace (this removes ALL resources inside it automatically)
 # Must be done from root namespace (VAULT_NAMESPACE already unset above)
 echo -e "${YELLOW}Deleting master-demo namespace (removes all auth methods, secrets engines, policies, and roles)...${NC}"
-if vault namespace delete master-demo 2>&1 | grep -q "deleted"; then
-    echo "✓ master-demo namespace deleted with all resources"
-elif vault namespace list 2>/dev/null | grep -q "master-demo/"; then
-    echo -e "${RED}✗ Failed to delete master-demo namespace${NC}"
-    echo "  Try manually: vault namespace delete master-demo"
+
+# First check if namespace exists
+if vault namespace list 2>/dev/null | grep -q "master-demo/"; then
+    # Revoke all leases in the namespace first (prevents database engine deletion issues)
+    echo -e "${YELLOW}Revoking all leases in master-demo namespace...${NC}"
+    export VAULT_NAMESPACE=master-demo
+    
+    # Specifically revoke database leases first (critical for DB engine cleanup)
+    vault lease revoke -force -prefix master-demo-db/ 2>/dev/null && echo "✓ Database leases revoked" || echo "  No database leases found"
+    
+    # Then revoke all other leases
+    vault lease revoke -prefix -force / 2>/dev/null && echo "✓ All remaining leases revoked" || echo "  No other active leases found"
+    
+    # Explicitly disable all secrets engines in the namespace
+    echo -e "${YELLOW}Disabling all secrets engines in master-demo namespace...${NC}"
+    vault secrets disable -force master-demo-db 2>/dev/null && echo "✓ Database engine disabled" || echo "  Database engine not found"
+    vault secrets disable -force master-demo-kv 2>/dev/null && echo "✓ KV engine disabled" || echo "  KV engine not found"
+    vault secrets disable -force master-demo-pki-root 2>/dev/null && echo "✓ PKI root disabled" || echo "  PKI root not found"
+    vault secrets disable -force master-demo-pki-issuing 2>/dev/null && echo "✓ PKI issuing disabled" || echo "  PKI issuing not found"
+    vault secrets disable -force master-demo-transit 2>/dev/null && echo "✓ Transit engine disabled" || echo "  Transit engine not found"
+    
+    # Disable auth methods
+    echo -e "${YELLOW}Disabling auth methods in master-demo namespace...${NC}"
+    vault auth disable master-demo-auth 2>/dev/null && echo "✓ Kubernetes auth disabled" || echo "  Kubernetes auth not found"
+    vault auth disable userpass 2>/dev/null && echo "✓ Userpass auth disabled" || echo "  Userpass auth not found"
+    
+    # Delete all policies
+    echo -e "${YELLOW}Deleting policies in master-demo namespace...${NC}"
+    for policy in master-demo-webapp master-demo-auth-policy-db master-demo-pki-issuer master-demo-auth-policy-operator master-demo-admin master-demo-gitlab-policy; do
+        vault policy delete "$policy" 2>/dev/null && echo "✓ Policy $policy deleted" || true
+    done
+    
+    unset VAULT_NAMESPACE
+    
+    # Try to delete the namespace
+    DELETE_OUTPUT=$(vault namespace delete master-demo 2>&1)
+    DELETE_EXIT_CODE=$?
+    
+    # Wait a moment for deletion to complete
+    sleep 2
+    
+    # Verify deletion by checking if namespace still exists
+    if ! vault namespace list 2>/dev/null | grep -q "master-demo/"; then
+        echo "✓ master-demo namespace deleted with all resources"
+    else
+        # Deletion failed, check if it's because of child namespaces or other resources
+        if echo "$DELETE_OUTPUT" | grep -q "child namespaces"; then
+            echo -e "${YELLOW}⚠ Namespace has child namespaces, attempting to delete them first...${NC}"
+            # List and delete child namespaces
+            CHILD_NAMESPACES=$(vault namespace list -namespace=master-demo 2>/dev/null | grep "/" | sed 's/\/$//')
+            for child in $CHILD_NAMESPACES; do
+                echo "  Deleting child namespace: master-demo/$child"
+                vault namespace delete -namespace=master-demo "$child" 2>/dev/null || true
+            done
+            # Try deleting parent namespace again
+            if vault namespace delete master-demo 2>/dev/null; then
+                echo "✓ master-demo namespace deleted with all resources"
+            else
+                echo -e "${RED}✗ Failed to delete master-demo namespace${NC}"
+                echo "  Error: $DELETE_OUTPUT"
+                echo "  Try manually: vault namespace delete master-demo"
+            fi
+        else
+            echo -e "${RED}✗ Failed to delete master-demo namespace${NC}"
+            echo "  Error: $DELETE_OUTPUT"
+            echo "  Try manually: vault namespace delete master-demo"
+        fi
+    fi
 else
     echo "  master-demo namespace not found (already deleted)"
 fi
