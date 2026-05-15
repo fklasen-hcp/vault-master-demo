@@ -322,9 +322,13 @@ port-forward-all:
 	fi
 	@# Check if audit-monitoring is deployed and start port-forwards if it exists
 	@if kubectl get namespace audit-monitoring > /dev/null 2>&1; then \
+		echo "Waiting for Grafana to be ready..."; \
+		kubectl wait --for=condition=ready pod -l app=grafana -n audit-monitoring --timeout=60s > /dev/null 2>&1 || echo "Grafana not ready yet"; \
 		echo "Starting Grafana port-forward (http://localhost:3000)..."; \
 		(kubectl port-forward -n audit-monitoring svc/grafana 3000:3000 > /dev/null 2>&1) & \
 		sleep 1; \
+		echo "Waiting for Prometheus to be ready..."; \
+		kubectl wait --for=condition=ready pod -l app=prometheus -n audit-monitoring --timeout=60s > /dev/null 2>&1 || echo "Prometheus not ready yet"; \
 		echo "Starting Prometheus port-forward (http://localhost:9091)..."; \
 		(kubectl port-forward -n audit-monitoring svc/prometheus 9091:9090 > /dev/null 2>&1) & \
 		sleep 1; \
