@@ -167,8 +167,21 @@ telemetry {
   disable_hostname = false
 }
 ```
+**Security Note**: The setup script creates a read-only, long-lived token specifically for Prometheus telemetry scraping:
 
-**Security Note**: The setup script will store your `$VAULT_TOKEN` (typically the root token) as a Kubernetes secret named `vault-token` in the `audit-monitoring` namespace. This token is used by Prometheus to authenticate to Vault's telemetry endpoint (`/v1/sys/metrics`). The secret is mounted read-only into the Prometheus pod.
+1. **Policy Created**: A `prometheus` policy is created in the root namespace with read-only access to `sys/metrics`
+   ```hcl
+   path "sys/metrics" {
+     capabilities = ["read"]
+   }
+   ```
+
+2. **Token Created**: A dedicated token with the `prometheus` policy is created with a 10-year TTL (87600h)
+
+3. **Stored Securely**: The token is stored as a Kubernetes secret named `vault-token` in the `audit-monitoring` namespace and mounted read-only into the Prometheus pod
+
+This approach follows the principle of least privilege - the token can only read telemetry metrics and has no other Vault permissions. The root token is only used during setup to create this limited-scope token.
+
 
 **Important**:
 - For production environments, create a dedicated token with limited permissions (only `sys/metrics` read access)

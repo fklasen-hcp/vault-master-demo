@@ -21,54 +21,94 @@ if [ -z "$VAULT_ADDR" ]; then
 fi
 
 if [ -z "$VAULT_TOKEN" ]; then
-    echo -e "${RED}ERROR: VAULT_TOKEN is not set. Please set it to your Vault root token.${NC}"
-    echo "Example: export VAULT_TOKEN=your-token-here"
-    exit 1
+    echo -e "${YELLOW}WARNING: VAULT_TOKEN is not set.${NC}"
+    echo -e "${YELLOW}Will use userpass authentication for Prometheus token creation.${NC}"
+    echo -e "${YELLOW}Note: Some operations may require VAULT_TOKEN to be set.${NC}"
+    VAULT_TOKEN_PROVIDED=false
+else
+    VAULT_TOKEN_PROVIDED=true
 fi
 
 echo -e "${GREEN}Using Vault at: $VAULT_ADDR${NC}"
 
 # Check Vault status
 echo -e "\n${GREEN}Checking Vault status...${NC}"
-if ! vault status > /dev/null 2>&1; then
-    echo -e "${RED}ERROR: Cannot connect to Vault at $VAULT_ADDR${NC}"
-    echo "Please ensure:"
-    echo "  1. Vault is running at $VAULT_ADDR"
-    echo "  2. Vault is unsealed"
-    echo "  3. VAULT_TOKEN is valid"
-    exit 1
-fi
-
-echo -e "${GREEN}✓ Vault is accessible and unsealed${NC}"
-
-# Enable file audit device
-AUDIT_LOG_PATH="$HOME/audit.log"
-echo -e "\n${GREEN}Enabling Vault file audit device...${NC}"
-
-# Check if audit device already exists
-if vault audit list | grep -q "file/"; then
-    echo -e "${YELLOW}File audit device already enabled${NC}"
-else
-    vault audit enable file file_path="$AUDIT_LOG_PATH" || {
-        echo -e "${RED}Failed to enable audit device${NC}"
+if [ "$VAULT_TOKEN_PROVIDED" = true ]; then
+    if ! vault status > /dev/null 2>&1; then
+        echo -e "${RED}ERROR: Cannot connect to Vault at $VAULT_ADDR${NC}"
+        echo "Please ensure:"
+        echo "  1. Vault is running at $VAULT_ADDR"
+        echo "  2. Vault is unsealed"
+        echo "  3. VAULT_TOKEN is valid"
         exit 1
-    }
-    echo -e "${GREEN}✓ File audit device enabled at $AUDIT_LOG_PATH${NC}"
+    fi
+    echo -e "${GREEN}✓ Vault is accessible and unsealed${NC}"
+else
+    # Try to check status without token (will work if Vault is accessible)
+    if ! curl -sk "$VAULT_ADDR/v1/sys/health" > /dev/null 2>&1; then
+        echo -e "${RED}ERROR: Cannot connect to Vault at $VAULT_ADDR${NC}"
+        echo "Please ensure Vault is running and accessible"
+        exit 1
+    fi
+    echo -e "${GREEN}✓ Vault is accessible${NC}"
 fi
 
-# Ensure audit log file exists
-if [ ! -f "$AUDIT_LOG_PATH" ]; then
-    echo -e "${YELLOW}Creating audit log file...${NC}"
-    touch "$AUDIT_LOG_PATH"
-    chmod 640 "$AUDIT_LOG_PATH"
+# Enable file audit device (requires VAULT_TOKEN)
+AUDIT_LOG_PATH="$HOME/audit.log"
+if [ "$VAULT_TOKEN_PROVIDED" = true ]; then
+    echo -e "\n${GREEN}Enabling Vault file audit device...${NC}"
+
+    # Check if audit device already exists
+    if vault audit list | grep -q "file/"; then
+        echo -e "${YELLOW}File audit device already enabled${NC}"
+    else
+        vault audit enable file file_path="$AUDIT_LOG_PATH" || {
+            echo -e "${RED}Failed to enable audit device${NC}"
+            exit 1
+        }
+        echo -e "${GREEN}✓ File audit device enabled at $AUDIT_LOG_PATH${NC}"
+    fi
+
+    # Ensure audit log file exists
+    if [ ! -f "$AUDIT_LOG_PATH" ]; then
+        echo -e "${YELLOW}Creating audit log file...${NC}"
+        touch "$AUDIT_LOG_PATH"
+        chmod 640 "$AUDIT_LOG_PATH"
+    fi
+    echo -e "${GREEN}✓ Audit log file ready: $AUDIT_LOG_PATH${NC}"
+else
+    echo -e "${YELLOW}Skipping audit device setup (requires VAULT_TOKEN)${NC}"
+    echo -e "${YELLOW}Audit device should already be enabled from previous setup${NC}"
 fi
 
 # Check Vault telemetry availability (non-blocking)
 check_vault_telemetry() {
     echo -e "\n${GREEN}Checking Vault telemetry availability...${NC}"
     
+    # Get a token for testing (either provided or via userpass)
+    local TEST_TOKEN="$VAULT_TOKEN"
+    if [ -z "$TEST_TOKEN" ]; then
+        echo -e "${BLUE}Logging in with demo user to test telemetry...${NC}"
+        # Set namespace for userpass login
+        export VAULT_NAMESPACE=master-demo
+        export VAULT_SKIP_VERIFY=true
+        TEST_TOKEN=$(vault login -method=userpass \
+            -path=userpass \
+            -token-only \
+            username=demo \
+            password=demo123 2>/dev/null)
+        unset VAULT_NAMESPACE
+        unset VAULT_SKIP_VERIFY
+        
+        if [ -z "$TEST_TOKEN" ]; then
+            echo -e "${YELLOW}⚠ Could not authenticate to test telemetry${NC}"
+            echo -e "${YELLOW}  Telemetry monitoring will be skipped${NC}"
+            return 1
+        fi
+    fi
+    
     # Test telemetry endpoint
-    TELEMETRY_CHECK=$(curl -sk -H "X-Vault-Token: $VAULT_TOKEN" \
+    TELEMETRY_CHECK=$(curl -sk -H "X-Vault-Token: $TEST_TOKEN" \
         "$VAULT_ADDR/v1/sys/metrics?format=prometheus" 2>/dev/null)
     
     if echo "$TELEMETRY_CHECK" | grep -q "vault_core_"; then
@@ -91,10 +131,8 @@ TELEMETRY_ENABLED=false
 if check_vault_telemetry; then
     TELEMETRY_ENABLED=true
     echo -e "${GREEN}✓ Telemetry monitoring will be enabled${NC}"
-    echo -e "${YELLOW}Note: Vault token secret will be created after namespace setup${NC}"
+    echo -e "${YELLOW}Note: Vault token will be created via userpass authentication${NC}"
 fi
-
-echo -e "${GREEN}✓ Audit log file ready: $AUDIT_LOG_PATH${NC}"
 
 # Mount home directory into minikube
 echo -e "\n${GREEN}Mounting home directory into minikube...${NC}"
@@ -157,27 +195,87 @@ echo -e "\n${GREEN}Deploying Kubernetes resources...${NC}"
 echo -e "${BLUE}Creating audit-monitoring namespace...${NC}"
 kubectl apply -f audit-monitoring/kubernetes/00-namespace.yaml
 
-# Create Vault token secret if telemetry is enabled
+# Create Vault token for Prometheus telemetry scraping
 if [ "$TELEMETRY_ENABLED" = true ]; then
-    echo -e "\n${GREEN}Creating Vault token secret for Prometheus...${NC}"
-    if kubectl create secret generic vault-token \
-        --from-literal=token="$VAULT_TOKEN" \
-        -n audit-monitoring \
-        --dry-run=client -o yaml | kubectl apply -f -; then
-        
-        # Verify the secret was created and has content
-        TOKEN_LENGTH=$(kubectl get secret vault-token -n audit-monitoring -o jsonpath='{.data.token}' 2>/dev/null | base64 -d | wc -c | tr -d ' ')
-        if [ "$TOKEN_LENGTH" -gt 0 ]; then
-            echo -e "${GREEN}✓ Vault token secret created successfully (${TOKEN_LENGTH} bytes)${NC}"
-        else
-            echo -e "${RED}ERROR: Vault token secret was created but is empty!${NC}"
-            echo -e "${RED}This will prevent telemetry from working.${NC}"
-            TELEMETRY_ENABLED=false
-        fi
-    else
-        echo -e "${RED}ERROR: Failed to create vault-token secret${NC}"
+    echo -e "\n${GREEN}Creating Prometheus token for telemetry scraping...${NC}"
+    
+    # Check if VAULT_TOKEN is available
+    if [ "$VAULT_TOKEN_PROVIDED" = false ]; then
+        echo -e "${YELLOW}WARNING: VAULT_TOKEN not provided${NC}"
+        echo -e "${YELLOW}Telemetry requires root token to create policy in root namespace${NC}"
         echo -e "${YELLOW}Telemetry monitoring will be disabled${NC}"
         TELEMETRY_ENABLED=false
+    else
+        # Step 1: Create a read-only policy in root namespace for sys/metrics access
+        echo -e "${BLUE}Step 1: Creating 'prometheus' policy in root namespace...${NC}"
+        unset VAULT_NAMESPACE  # Ensure we're in root namespace
+        export VAULT_SKIP_VERIFY=true
+        
+        vault policy write prometheus - <<EOF
+# Read-only access to telemetry metrics for Prometheus scraping
+# This policy is created in the root namespace as sys/metrics is a global endpoint
+path "sys/metrics" {
+  capabilities = ["read"]
+}
+EOF
+        echo -e "${GREEN}✓ 'prometheus' policy created in root namespace${NC}"
+        
+        # Step 2: Create a long-lived token (10 years) for Prometheus
+        echo -e "${BLUE}Step 2: Creating long-lived token with 'prometheus' policy (TTL: 87600h / 10 years)...${NC}"
+        
+        set +e
+        TOKEN_CREATE_OUTPUT=$(vault token create \
+            -policy=prometheus \
+            -ttl=87600h \
+            -display-name="prometheus-telemetry" \
+            -format=json 2>&1)
+        TOKEN_CREATE_EXIT=$?
+        set -e
+        
+        unset VAULT_SKIP_VERIFY
+        
+        if [ $TOKEN_CREATE_EXIT -ne 0 ]; then
+            echo -e "${RED}ERROR: Failed to create long-lived token${NC}"
+            echo -e "${RED}Error output: $TOKEN_CREATE_OUTPUT${NC}"
+            echo -e "${YELLOW}Telemetry monitoring will be disabled${NC}"
+            TELEMETRY_ENABLED=false
+        else
+            PROMETHEUS_TOKEN=$(echo "$TOKEN_CREATE_OUTPUT" | jq -r '.auth.client_token')
+            
+            if [ -z "$PROMETHEUS_TOKEN" ] || [ "$PROMETHEUS_TOKEN" = "null" ]; then
+                echo -e "${RED}ERROR: Failed to extract token from response${NC}"
+                echo -e "${RED}Response: $TOKEN_CREATE_OUTPUT${NC}"
+                echo -e "${YELLOW}Telemetry monitoring will be disabled${NC}"
+                TELEMETRY_ENABLED=false
+            fi
+        fi
+        
+        if [ "$TELEMETRY_ENABLED" = true ] && [ -n "$PROMETHEUS_TOKEN" ] && [ "$PROMETHEUS_TOKEN" != "null" ]; then
+            echo -e "${GREEN}✓ Long-lived token created successfully${NC}"
+            
+            # Step 3: Store the long-lived token in Kubernetes secret
+            echo -e "${BLUE}Step 3: Creating Kubernetes secret with Prometheus token...${NC}"
+            if kubectl create secret generic vault-token \
+                --from-literal=token="$PROMETHEUS_TOKEN" \
+                -n audit-monitoring \
+                --dry-run=client -o yaml | kubectl apply -f -; then
+                
+                # Verify the secret
+                TOKEN_LENGTH=$(kubectl get secret vault-token -n audit-monitoring -o jsonpath='{.data.token}' 2>/dev/null | base64 -d | wc -c | tr -d ' ')
+                if [ "$TOKEN_LENGTH" -gt 0 ]; then
+                    echo -e "${GREEN}✓ Vault token secret created successfully (${TOKEN_LENGTH} bytes)${NC}"
+                    echo -e "${BLUE}Token created in: root namespace${NC}"
+                    echo -e "${BLUE}Token TTL: 87600h (10 years)${NC}"
+                    echo -e "${BLUE}Token policy: prometheus (read-only access to sys/metrics)${NC}"
+                else
+                    echo -e "${RED}ERROR: Vault token secret was created but is empty!${NC}"
+                    TELEMETRY_ENABLED=false
+                fi
+            else
+                echo -e "${RED}ERROR: Failed to create vault-token secret${NC}"
+                TELEMETRY_ENABLED=false
+            fi
+        fi
     fi
 fi
 
