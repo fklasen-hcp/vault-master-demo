@@ -98,128 +98,193 @@ spec:
             # Get certificate directly from Kubernetes secret (always up-to-date)
             CERT=$(kubectl get secret pki-demo-tls -n pki-demo -o jsonpath='{.data.certificate}' | base64 -d)
             if [ ! -z "$CERT" ]; then
-              cat > /usr/share/nginx/html/index.html << 'EOF'
+              # Write to temp file first to avoid partial page loads
+              cat > /usr/share/nginx/html/index.html.tmp << 'EOF'
           <!DOCTYPE html>
           <html>
           <head>
-              <title>Vault PKI Auto-Renewal Demo</title>
+              <title>Vault PKI Auto-Renewal</title>
+              <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
               <style>
+                  * {
+                      margin: 0;
+                      padding: 0;
+                      box-sizing: border-box;
+                  }
                   body {
-                      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                      background: #000000;
+                      color: #FFFFFF;
+                      min-height: 100vh;
+                      padding: 20px;
+                      font-size: 16px;
+                      line-height: 1.5;
+                      position: relative;
+                  }
+                  body::before {
+                      content: '';
+                      position: fixed;
+                      top: 50%;
+                      left: -100px;
+                      transform: translateY(-50%);
+                      width: 600px;
+                      height: 600px;
+                      background-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjggMTI4Ij48cGF0aCBmaWxsPSIjZmZkODE0IiBkPSJtMCAxLjk1MyA2My43NiAxMjQuMDk0TDEyOCAxLjk1M1ptNTMuODQxIDQ5LjI1NEg0My42ODRWNDEuMDZINTMuODR6bTAtMTUuMjI3SDQzLjY4NFYyNS44MjJINTMuODRaTTY5LjA4IDY2LjQ0NEg1OC45N1Y1Ni4yODZoMTAuMTA4em0wLTE1LjIzN0g1OC45N1Y0MS4wNmgxMC4xMDh6bTAtMTUuMjI3SDU4Ljk3VjI1LjgyMmgxMC4xMDhabTE1LjE0NyAxNS4yMjdINzQuMDI3VjQxLjA2aDEwLjE1OVpNNzQuMDI3IDM1Ljk4VjI1LjgyMmgxMC4xNTlWMzUuOTh6Ii8+PC9zdmc+');
+                      background-repeat: no-repeat;
+                      background-position: center;
+                      background-size: contain;
+                      opacity: 0.08;
+                      pointer-events: none;
+                      z-index: 0;
+                  }
+                  .header, .container {
+                      position: relative;
+                      z-index: 1;
+                  }
+                  .header {
+                      background: #1a1a1a;
+                      border: 2px solid #333333;
+                      border-radius: 8px;
+                      padding: 20px;
+                      margin-bottom: 20px;
                       max-width: 1000px;
-                      margin: 50px auto;
-                      padding: 30px;
-                      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                      margin: 0 auto 20px auto;
+                      display: flex;
+                      align-items: center;
+                      justify-content: center;
+                  }
+                  .header h1 {
+                      color: #FFFFFF;
+                      font-size: 28px;
+                      margin: 0;
+                      font-weight: 700;
+                      letter-spacing: -0.02em;
+                      text-align: center;
                   }
                   .container {
-                      background: white;
-                      border-radius: 15px;
+                      max-width: 1000px;
+                      margin: 0 auto;
+                      background: #1a1a1a;
+                      border: 2px solid #333333;
+                      border-radius: 8px;
                       padding: 40px;
-                      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-                  }
-                  h1 {
-                      color: #333;
-                      text-align: center;
-                      margin-bottom: 30px;
                   }
                   .status {
-                      font-size: 28px;
-                      font-weight: bold;
+                      font-size: 20px;
+                      font-weight: 600;
                       text-align: center;
-                      padding: 25px;
+                      padding: 20px;
                       margin: 25px 0;
-                      border-radius: 10px;
-                      background: #d4edda;
-                      color: #155724;
-                      border: 3px solid #c3e6cb;
+                      border-radius: 6px;
+                      background: rgba(255, 216, 20, 0.1);
+                      color: #FFD814;
+                      border: 2px solid #FFD814;
                   }
                   .info-box {
-                      background: #f8f9fa;
-                      border-left: 5px solid #667eea;
+                      background: #0a0a0a;
+                      border: 2px solid #333333;
                       padding: 20px;
                       margin: 20px 0;
-                      border-radius: 8px;
+                      border-radius: 6px;
+                  }
+                  .info-box:hover {
+                      border-color: #FFD814;
+                      box-shadow: 0 0 15px rgba(255, 216, 20, 0.1);
                   }
                   .label {
-                      font-weight: bold;
-                      color: #667eea;
-                      font-size: 16px;
-                      margin-bottom: 8px;
+                      font-weight: 600;
+                      color: #FFD814;
+                      font-size: 12px;
+                      margin-bottom: 10px;
+                      text-transform: uppercase;
+                      letter-spacing: 0.05em;
                   }
                   .value {
-                      color: #333;
-                      font-family: 'Courier New', monospace;
-                      font-size: 14px;
+                      color: #FFFFFF;
+                      font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+                      font-size: 13px;
                       word-break: break-all;
-                      background: white;
-                      padding: 10px;
-                      border-radius: 5px;
+                      line-height: 1.6;
+                      background: #000000;
+                      padding: 12px;
+                      border-radius: 4px;
+                      border: 1px solid #333333;
+                      font-weight: 400;
                   }
                   .refresh-btn {
                       display: block;
                       margin: 30px auto;
-                      padding: 15px 40px;
-                      font-size: 18px;
-                      font-weight: bold;
-                      color: white;
-                      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                      padding: 16px 48px;
+                      font-size: 15px;
+                      font-weight: 600;
+                      color: #000000;
+                      background: #FFD814;
                       border: none;
-                      border-radius: 10px;
+                      border-radius: 6px;
                       cursor: pointer;
-                      box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
-                      transition: transform 0.2s, box-shadow 0.2s;
+                      transition: all 0.2s;
+                      font-family: 'Inter', sans-serif;
                   }
                   .refresh-btn:hover {
+                      background: #FFC700;
                       transform: translateY(-2px);
-                      box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+                      box-shadow: 0 6px 20px rgba(255, 216, 20, 0.4);
                   }
                   .refresh-btn:active {
                       transform: translateY(0);
                   }
                   .footer {
                       text-align: center;
-                      color: #666;
+                      color: #888888;
                       margin-top: 40px;
                       padding-top: 20px;
-                      border-top: 2px solid #eee;
+                      border-top: 1px solid #333333;
+                      font-size: 14px;
+                      line-height: 1.8;
+                      font-weight: 400;
+                  }
+                  .footer p {
+                      margin: 8px 0;
                   }
               </style>
           </head>
           <body>
+              <div class="header">
+                  <h1>Vault PKI Certificate Auto-Renewal</h1>
+              </div>
               <div class="container">
-                  <h1>Vault PKI Certificate Auto-Renewal Demo</h1>
           EOF
               
               # Add certificate details from the secret we just fetched
-              echo '<div class="info-box"><div class="label">Certificate Subject:</div><div class="value">' >> /usr/share/nginx/html/index.html
-              echo "$CERT" | openssl x509 -noout -subject 2>/dev/null | sed 's/subject=//' >> /usr/share/nginx/html/index.html
-              echo '</div></div>' >> /usr/share/nginx/html/index.html
+              echo '<div class="info-box"><div class="label">Certificate Subject:</div><div class="value">' >> /usr/share/nginx/html/index.html.tmp
+              echo "$CERT" | openssl x509 -noout -subject 2>/dev/null | sed 's/subject=//' >> /usr/share/nginx/html/index.html.tmp
+              echo '</div></div>' >> /usr/share/nginx/html/index.html.tmp
               
-              echo '<div class="info-box"><div class="label">Serial Number:</div><div class="value">' >> /usr/share/nginx/html/index.html
-              echo "$CERT" | openssl x509 -noout -serial 2>/dev/null | sed 's/serial=//' >> /usr/share/nginx/html/index.html
-              echo '</div></div>' >> /usr/share/nginx/html/index.html
+              echo '<div class="info-box"><div class="label">Serial Number:</div><div class="value">' >> /usr/share/nginx/html/index.html.tmp
+              echo "$CERT" | openssl x509 -noout -serial 2>/dev/null | sed 's/serial=//' >> /usr/share/nginx/html/index.html.tmp
+              echo '</div></div>' >> /usr/share/nginx/html/index.html.tmp
               
-              echo '<div class="info-box"><div class="label">Valid From:</div><div class="value">' >> /usr/share/nginx/html/index.html
-              echo "$CERT" | openssl x509 -noout -startdate 2>/dev/null | sed 's/notBefore=//' >> /usr/share/nginx/html/index.html
-              echo '</div></div>' >> /usr/share/nginx/html/index.html
+              echo '<div class="info-box"><div class="label">Valid From:</div><div class="value">' >> /usr/share/nginx/html/index.html.tmp
+              echo "$CERT" | openssl x509 -noout -startdate 2>/dev/null | sed 's/notBefore=//' >> /usr/share/nginx/html/index.html.tmp
+              echo '</div></div>' >> /usr/share/nginx/html/index.html.tmp
               
-              echo '<div class="info-box"><div class="label">Valid Until:</div><div class="value">' >> /usr/share/nginx/html/index.html
-              echo "$CERT" | openssl x509 -noout -enddate 2>/dev/null | sed 's/notAfter=//' >> /usr/share/nginx/html/index.html
-              echo '</div></div>' >> /usr/share/nginx/html/index.html
+              echo '<div class="info-box"><div class="label">Valid Until:</div><div class="value">' >> /usr/share/nginx/html/index.html.tmp
+              echo "$CERT" | openssl x509 -noout -enddate 2>/dev/null | sed 's/notAfter=//' >> /usr/share/nginx/html/index.html.tmp
+              echo '</div></div>' >> /usr/share/nginx/html/index.html.tmp
               
-              echo '<div class="info-box"><div class="label">Issuer:</div><div class="value">' >> /usr/share/nginx/html/index.html
-              echo "$CERT" | openssl x509 -noout -issuer 2>/dev/null | sed 's/issuer=//' >> /usr/share/nginx/html/index.html
-              echo '</div></div>' >> /usr/share/nginx/html/index.html
+              echo '<div class="info-box"><div class="label">Issuer:</div><div class="value">' >> /usr/share/nginx/html/index.html.tmp
+              echo "$CERT" | openssl x509 -noout -issuer 2>/dev/null | sed 's/issuer=//' >> /usr/share/nginx/html/index.html.tmp
+              echo '</div></div>' >> /usr/share/nginx/html/index.html.tmp
               
-              echo '<div class="info-box"><div class="label">Pod Name:</div><div class="value">' >> /usr/share/nginx/html/index.html
-              echo "$HOSTNAME" >> /usr/share/nginx/html/index.html
-              echo '</div></div>' >> /usr/share/nginx/html/index.html
+              echo '<div class="info-box"><div class="label">Pod Name:</div><div class="value">' >> /usr/share/nginx/html/index.html.tmp
+              echo "$HOSTNAME" >> /usr/share/nginx/html/index.html.tmp
+              echo '</div></div>' >> /usr/share/nginx/html/index.html.tmp
               
-              echo '<div class="info-box"><div class="label">Current Time:</div><div class="value">' >> /usr/share/nginx/html/index.html
-              date '+%Y-%m-%d %H:%M:%S %Z' >> /usr/share/nginx/html/index.html
-              echo '</div></div>' >> /usr/share/nginx/html/index.html
+              echo '<div class="info-box"><div class="label">Current Time:</div><div class="value">' >> /usr/share/nginx/html/index.html.tmp
+              date '+%Y-%m-%d %H:%M:%S %Z' >> /usr/share/nginx/html/index.html.tmp
+              echo '</div></div>' >> /usr/share/nginx/html/index.html.tmp
               
-              cat >> /usr/share/nginx/html/index.html << 'EOF'
+              cat >> /usr/share/nginx/html/index.html.tmp << 'EOF'
                   <button class="refresh-btn" onclick="location.reload()">Refresh Certificate Info</button>
                   <div class="footer">
                       <p>Certificate Validity: 30 seconds | VSO Renewal: Every ~25 seconds</p>
@@ -230,6 +295,8 @@ spec:
           </body>
           </html>
           EOF
+              # Atomically move temp file to final location
+              mv /usr/share/nginx/html/index.html.tmp /usr/share/nginx/html/index.html
             else
               echo "<h1>Waiting for certificate...</h1>" > /usr/share/nginx/html/index.html
             fi

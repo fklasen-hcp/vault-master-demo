@@ -55,9 +55,9 @@ if vault namespace list 2>/dev/null | grep -q "master-demo/"; then
     
     # Explicitly disable all secrets engines in the namespace
     echo -e "${YELLOW}Disabling all secrets engines in master-demo namespace...${NC}"
-    vault secrets disable -force master-demo-db 2>/dev/null && echo "✓ Database engine disabled" || echo "  Database engine not found"
-    vault secrets disable -force master-demo-kv 2>/dev/null && echo "✓ KV engine disabled" || echo "  KV engine not found"
-    vault secrets disable -force master-demo-pki-root 2>/dev/null && echo "✓ PKI root disabled" || echo "  PKI root not found"
+    vault secrets disable master-demo-db 2>/dev/null && echo "✓ Database engine disabled" || echo "  Database engine not found"
+    vault secrets disable master-demo-kv 2>/dev/null && echo "✓ KV engine disabled" || echo "  KV engine not found"
+    vault secrets disable master-demo-pki-root 2>/dev/null && echo "✓ PKI root disabled" || echo "  PKI root not found"
     vault secrets disable -force master-demo-pki-issuing 2>/dev/null && echo "✓ PKI issuing disabled" || echo "  PKI issuing not found"
     vault secrets disable -force master-demo-transit 2>/dev/null && echo "✓ Transit engine disabled" || echo "  Transit engine not found"
     
