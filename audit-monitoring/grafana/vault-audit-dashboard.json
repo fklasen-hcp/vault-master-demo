@@ -1068,12 +1068,12 @@
       },
       "targets": [
         {
-          "expr": "rate(vault_audit_errors_total[1m])",
+          "expr": "sum(rate(vault_audit_errors_total[1m]))",
           "legendFormat": "Errors",
           "refId": "A"
         },
         {
-          "expr": "rate(vault_audit_warnings_total[1m])",
+          "expr": "sum(rate(vault_audit_warnings_total[1m]))",
           "legendFormat": "Warnings",
           "refId": "B"
         }

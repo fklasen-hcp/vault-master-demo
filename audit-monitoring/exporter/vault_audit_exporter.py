@@ -228,6 +228,7 @@ class AuditLogProcessor:
         """Process a response entry."""
         request = entry.get('request', {})
         response = entry.get('response', {})
+        auth = entry.get('auth', {})
         
         request_id = request.get('id')
         operation = request.get('operation', 'unknown')
@@ -245,6 +246,22 @@ class AuditLogProcessor:
         # Determine status
         error = entry.get('error')
         status = 'error' if error else 'success'
+        
+        # Track authentication for login operations (auth info only in response)
+        if 'auth/userpass/login' in path or 'auth/github/login' in path or 'auth/cert/login' in path:
+            if auth and not error:
+                display_name = auth.get('display_name', 'unknown')
+                auth_metadata = auth.get('metadata', {})
+                auth_accessor = auth.get('accessor', '')
+                
+                # Extract auth method
+                auth_method = self._extract_auth_method(display_name, auth_metadata, auth_accessor)
+                
+                auth_requests_total.labels(
+                    auth_method=auth_method,
+                    display_name=self._sanitize_display_name(display_name),
+                    namespace=namespace
+                ).inc()
         
         # Update request counter with final status
         requests_total.labels(
@@ -334,6 +351,10 @@ class AuditLogProcessor:
             # Kubernetes auth has role_name in metadata
             return 'kubernetes'
         
+        # Check metadata for username (userpass auth)
+        if 'username' in auth_metadata:
+            return 'userpass'
+        
         # Check accessor for auth method prefix (e.g., "auth_kubernetes_...")
         if auth_accessor:
             if auth_accessor.startswith('auth_kubernetes'):
@@ -344,20 +365,26 @@ class AuditLogProcessor:
                 return 'github'
             elif auth_accessor.startswith('auth_cert'):
                 return 'cert'
+            elif auth_accessor.startswith('auth_token'):
+                return 'token'
         
         # Fall back to display_name patterns
+        # Check for userpass BEFORE checking for master-demo-auth pattern
+        if 'userpass' in display_name.lower():
+            return 'userpass'
         # Kubernetes auth: service accounts contain namespace/sa pattern
-        if '/' in display_name or 'system:serviceaccount' in display_name:
+        elif '/' in display_name or 'system:serviceaccount' in display_name:
             return 'kubernetes'
         elif 'master-demo-auth' in display_name:
+            # This catches kubernetes service accounts with master-demo-auth prefix
             return 'kubernetes'
-        elif 'userpass' in display_name.lower() or display_name == 'demo':
+        elif display_name in ['demo', 'admin', 'user']:
             return 'userpass'
         elif 'github' in display_name.lower():
             return 'github'
         elif 'cert' in display_name.lower():
             return 'cert'
-        elif 'token' in display_name.lower():
+        elif 'token' in display_name.lower() or 'prometheus' in display_name.lower():
             return 'token'
         elif 'root' in display_name.lower():
             return 'root'
