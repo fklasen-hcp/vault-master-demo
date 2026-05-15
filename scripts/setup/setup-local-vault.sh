@@ -199,6 +199,11 @@ path "sys/policies/acl/*" {
   capabilities = ["read", "list"]
 }
 
+# Allow reading telemetry metrics (for Prometheus scraping)
+path "sys/metrics" {
+  capabilities = ["read"]
+}
+
 # KV v2 secrets engine - full access
 path "master-demo-kv/*" {
   capabilities = ["create", "read", "update", "delete", "list"]

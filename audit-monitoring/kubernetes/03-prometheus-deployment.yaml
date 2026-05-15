@@ -46,6 +46,9 @@ spec:
           mountPath: /etc/prometheus
         - name: data
           mountPath: /prometheus
+        - name: vault-token
+          mountPath: /vault
+          readOnly: true
         resources:
           requests:
             memory: "512Mi"
@@ -74,6 +77,13 @@ spec:
       - name: data
         persistentVolumeClaim:
           claimName: prometheus-data
+      - name: vault-token
+        secret:
+          secretName: vault-token
+          optional: true
+          items:
+          - key: token
+            path: token
 ---
 apiVersion: v1
 kind: Service

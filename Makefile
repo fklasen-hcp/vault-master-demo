@@ -167,6 +167,9 @@ all-recover:
 	$(call header,$@)
 	@chmod +x scripts/setup/recover-pki-rotation.sh
 	@./scripts/setup/recover-pki-rotation.sh
+	@echo ""
+	@echo "Starting all port-forwards..."
+	@$(MAKE) port-forward-all
 
 # Legacy alias
 .PHONY: recover-pki-rotation
@@ -521,6 +524,10 @@ all-gitlab: setup-gitlab-demo
 setup-audit-monitoring:
 	$(call header,$@)
 	@chmod +x scripts/setup/setup-audit-monitoring.sh
+	@if [ -z "$$VAULT_TOKEN" ] && [ -z "$(VAULT_TOKEN)" ]; then \
+		echo "WARNING: VAULT_TOKEN not set. Telemetry monitoring will be disabled."; \
+		echo "To enable telemetry, run: export VAULT_TOKEN"; \
+	fi
 	@./scripts/setup/setup-audit-monitoring.sh
 .PHONY: enable-audit-log-rotation
 enable-audit-log-rotation:
@@ -562,12 +569,30 @@ prometheus-port-forward:
 	$(call header,$@)
 	@echo "=== Prometheus Access Information ==="
 	@echo ""
-	@echo "URL: http://localhost:9090"
+	@echo "URL: http://localhost:9091"
 	@echo ""
 	@echo "Port-forwarding Prometheus..."
 	@echo "Press Ctrl+C to stop"
 	@echo ""
-	@kubectl port-forward -n audit-monitoring svc/prometheus 9090:9090
+	@kubectl port-forward -n audit-monitoring svc/prometheus 9091:9090
+
+.PHONY: check-vault-telemetry
+check-vault-telemetry:
+	$(call header,$@)
+	@echo "Checking Vault telemetry availability..."
+	@echo ""
+	@if [ -z "$$VAULT_TOKEN" ]; then \
+		echo "ERROR: VAULT_TOKEN not set"; \
+		exit 1; \
+	fi
+	@curl -sk -H "X-Vault-Token: $$VAULT_TOKEN" \
+		"$$VAULT_ADDR/v1/sys/metrics?format=prometheus" | head -20
+	@echo ""
+	@echo "If you see vault_core_* metrics above, telemetry is enabled."
+	@echo "If not, add this to your Vault config:"
+	@echo "  telemetry {"
+	@echo "    prometheus_retention_time = \"5m\""
+	@echo "  }"
 
 .PHONY: audit-exporter-logs
 audit-exporter-logs:

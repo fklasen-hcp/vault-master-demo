@@ -1,0 +1,314 @@
+{
+  "title": "Vault Telemetry & Performance",
+  "tags": ["vault", "telemetry", "performance", "health"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 4,
+  "refresh": "10s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Total API Requests",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 8, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "sum(vault_core_handle_request_count)",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "graphMode": "area",
+        "colorMode": "value",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Request Latency (p99)",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 8, "x": 8, "y": 0},
+      "targets": [
+        {
+          "expr": "vault_core_handle_request{quantile=\"0.99\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "graphMode": "area",
+        "colorMode": "value",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "decimals": 2
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Vault Status",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 8, "x": 16, "y": 0},
+      "targets": [
+        {
+          "expr": "vault_core_unsealed",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "graphMode": "none",
+        "colorMode": "background",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "UNSEALED",
+                  "color": "green"
+                },
+                "0": {
+                  "text": "SEALED",
+                  "color": "red"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"value": 0, "color": "red"},
+              {"value": 1, "color": "green"}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Request Rate Over Time",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "targets": [
+        {
+          "expr": "rate(vault_core_handle_request_count[1m])",
+          "refId": "A",
+          "legendFormat": ""
+        }
+      ],
+      "options": {
+        "tooltip": {"mode": "single"},
+        "legend": {"displayMode": "hidden"}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 20
+          },
+          "unit": "reqps"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Request Latency (p50, p99)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "targets": [
+        {
+          "expr": "vault_core_handle_request{quantile=\"0.5\"}",
+          "refId": "A",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "vault_core_handle_request{quantile=\"0.99\"}",
+          "refId": "B",
+          "legendFormat": "p99"
+        }
+      ],
+      "options": {
+        "tooltip": {"mode": "multi"},
+        "legend": {"displayMode": "list", "placement": "bottom"}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 20
+          },
+          "unit": "ms"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Token Operations",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+      "targets": [
+        {
+          "expr": "rate(vault_token_create_count[1m])",
+          "refId": "A",
+          "legendFormat": "Creates"
+        },
+        {
+          "expr": "rate(vault_token_lookup_count[1m])",
+          "refId": "B",
+          "legendFormat": "Lookups"
+        }
+      ],
+      "options": {
+        "tooltip": {"mode": "multi"},
+        "legend": {"displayMode": "list", "placement": "bottom"}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 20
+          },
+          "unit": "ops"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Policy Evaluations",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+      "targets": [
+        {
+          "expr": "rate(vault_policy_get_policy_count[1m])",
+          "refId": "A",
+          "legendFormat": ""
+        }
+      ],
+      "options": {
+        "tooltip": {"mode": "single"},
+        "legend": {"displayMode": "hidden"}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 20
+          },
+          "unit": "ops"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Audit Log Requests",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+      "targets": [
+        {
+          "expr": "rate(vault_audit_log_request_count[1m])",
+          "refId": "A",
+          "legendFormat": ""
+        }
+      ],
+      "options": {
+        "tooltip": {"mode": "single"},
+        "legend": {"displayMode": "hidden"}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 20
+          },
+          "unit": "reqps"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Audit Log Failures",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+      "targets": [
+        {
+          "expr": "rate(vault_audit_log_request_failure[1m])",
+          "refId": "A",
+          "legendFormat": ""
+        }
+      ],
+      "options": {
+        "tooltip": {"mode": "single"},
+        "legend": {"displayMode": "hidden"}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 20
+          },
+          "unit": "ops",
+          "color": {"mode": "fixed", "fixedColor": "red"}
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "Unsealed Status Timeline",
+      "type": "timeseries",
+      "gridPos": {"h": 6, "w": 24, "x": 0, "y": 28},
+      "targets": [
+        {
+          "expr": "vault_core_unsealed",
+          "refId": "A",
+          "legendFormat": ""
+        }
+      ],
+      "options": {
+        "tooltip": {"mode": "single"},
+        "legend": {"displayMode": "hidden"}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "fillOpacity": 50
+          },
+          "unit": "short",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"value": 0, "color": "red"},
+              {"value": 1, "color": "green"}
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

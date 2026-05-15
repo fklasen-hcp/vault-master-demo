@@ -68,8 +68,9 @@ This setup uses:
 │  │  - Scrapes Vault /v1/sys/metrics (15s, optional)       │  │
 │  │                      ↓                                   │  │
 │  │                   Grafana                                │  │
-│  │  - Audit dashboard (15 panels, 5s refresh)             │  │
-│  │  - Telemetry dashboard (15 panels, 10s refresh)        │  │
+│  │  - Unified dashboard: Vault Audit & Telemetry          │  │
+│  │  - 20+ panels combining audit + telemetry metrics      │  │
+│  │  - 5s refresh, telemetry panels optional               │  │
 │  └──────────────────────────────────────────────────────────┘  │
 └─────────────────┼───────────────────────────────────────────────┘
                   │
@@ -124,18 +125,18 @@ This setup uses:
                                  │
                                  │ PromQL
                                  ▼
-                        ┌──────────────────┐
-                        │ Grafana :3000    │
-                        │                  │
-                        │ 1. Audit         │
-                        │    Dashboard     │
-                        │    (15 panels)   │
-                        │                  │
-                        │ 2. Telemetry     │
-                        │    Dashboard     │
-                        │    (15 panels)   │
-                        │    [if enabled]  │
-                        └──────────────────┘
+                        ┌──────────────────────────────┐
+                        │ Grafana :3000                │
+                        │                              │
+                        │ Vault Audit & Telemetry      │
+                        │ Monitoring Dashboard         │
+                        │                              │
+                        │ • 20+ unified panels         │
+                        │ • Audit metrics (always on)  │
+                        │ • Telemetry metrics          │
+                        │   (optional, if enabled)     │
+                        │ • 5s refresh rate            │
+                        └──────────────────────────────┘
 ```
 
 ## Prerequisites

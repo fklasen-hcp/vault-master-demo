@@ -63,6 +63,37 @@ if [ ! -f "$AUDIT_LOG_PATH" ]; then
     chmod 640 "$AUDIT_LOG_PATH"
 fi
 
+# Check Vault telemetry availability (non-blocking)
+check_vault_telemetry() {
+    echo -e "\n${GREEN}Checking Vault telemetry availability...${NC}"
+    
+    # Test telemetry endpoint
+    TELEMETRY_CHECK=$(curl -sk -H "X-Vault-Token: $VAULT_TOKEN" \
+        "$VAULT_ADDR/v1/sys/metrics?format=prometheus" 2>/dev/null)
+    
+    if echo "$TELEMETRY_CHECK" | grep -q "vault_core_"; then
+        echo -e "${GREEN}✓ Vault telemetry is enabled and accessible${NC}"
+        return 0
+    else
+        echo -e "${YELLOW}⚠ Vault telemetry is not available${NC}"
+        echo -e "${YELLOW}  Telemetry monitoring will be skipped${NC}"
+        echo -e "${YELLOW}  To enable, add to your Vault config:${NC}"
+        echo -e "${YELLOW}    telemetry {${NC}"
+        echo -e "${YELLOW}      prometheus_retention_time = \"5m\"${NC}"
+        echo -e "${YELLOW}    }${NC}"
+        echo -e "${YELLOW}  Continuing with audit monitoring only...${NC}"
+        return 1
+    fi
+}
+
+# Check telemetry availability (secret will be created after namespace exists)
+TELEMETRY_ENABLED=false
+if check_vault_telemetry; then
+    TELEMETRY_ENABLED=true
+    echo -e "${GREEN}✓ Telemetry monitoring will be enabled${NC}"
+    echo -e "${YELLOW}Note: Vault token secret will be created after namespace setup${NC}"
+fi
+
 echo -e "${GREEN}✓ Audit log file ready: $AUDIT_LOG_PATH${NC}"
 
 # Mount home directory into minikube
@@ -126,6 +157,30 @@ echo -e "\n${GREEN}Deploying Kubernetes resources...${NC}"
 echo -e "${BLUE}Creating audit-monitoring namespace...${NC}"
 kubectl apply -f audit-monitoring/kubernetes/00-namespace.yaml
 
+# Create Vault token secret if telemetry is enabled
+if [ "$TELEMETRY_ENABLED" = true ]; then
+    echo -e "\n${GREEN}Creating Vault token secret for Prometheus...${NC}"
+    if kubectl create secret generic vault-token \
+        --from-literal=token="$VAULT_TOKEN" \
+        -n audit-monitoring \
+        --dry-run=client -o yaml | kubectl apply -f -; then
+        
+        # Verify the secret was created and has content
+        TOKEN_LENGTH=$(kubectl get secret vault-token -n audit-monitoring -o jsonpath='{.data.token}' 2>/dev/null | base64 -d | wc -c | tr -d ' ')
+        if [ "$TOKEN_LENGTH" -gt 0 ]; then
+            echo -e "${GREEN}✓ Vault token secret created successfully (${TOKEN_LENGTH} bytes)${NC}"
+        else
+            echo -e "${RED}ERROR: Vault token secret was created but is empty!${NC}"
+            echo -e "${RED}This will prevent telemetry from working.${NC}"
+            TELEMETRY_ENABLED=false
+        fi
+    else
+        echo -e "${RED}ERROR: Failed to create vault-token secret${NC}"
+        echo -e "${YELLOW}Telemetry monitoring will be disabled${NC}"
+        TELEMETRY_ENABLED=false
+    fi
+fi
+
 # Deploy exporter
 echo -e "${BLUE}Deploying Vault audit exporter...${NC}"
 kubectl apply -f audit-monitoring/kubernetes/01-exporter-deployment.yaml
@@ -138,6 +193,14 @@ kubectl apply -f audit-monitoring/kubernetes/03-prometheus-deployment.yaml
 # Deploy Grafana
 echo -e "${BLUE}Deploying Grafana...${NC}"
 kubectl apply -f audit-monitoring/kubernetes/04-grafana-config.yaml
+
+# Create dashboard ConfigMap from JSON file
+echo -e "${BLUE}Creating Grafana dashboard ConfigMap from file...${NC}"
+kubectl create configmap grafana-dashboard-vault-audit \
+    --from-file=audit-monitoring/grafana/vault-audit-dashboard.json \
+    -n audit-monitoring \
+    --dry-run=client -o yaml | kubectl apply -f -
+
 kubectl apply -f audit-monitoring/kubernetes/05-grafana-deployment.yaml
 
 echo -e "${GREEN}✓ All Kubernetes resources deployed${NC}"
@@ -168,10 +231,15 @@ kubectl get svc -n audit-monitoring
 
 # Display access information
 echo -e "\n${GREEN}=== Access Information ===${NC}"
-echo -e "${BLUE}Grafana Dashboard:${NC}"
+echo -e "${BLUE}Grafana Dashboards:${NC}"
 echo -e "  URL: ${YELLOW}http://localhost:3000${NC}"
 echo -e "  Username: ${YELLOW}admin${NC}"
 echo -e "  Password: ${YELLOW}admin${NC}"
+echo -e "  Dashboards:"
+echo -e "    - ${YELLOW}Vault Audit Monitoring${NC} (audit logs)"
+if [ "$TELEMETRY_ENABLED" = true ]; then
+    echo -e "    - ${YELLOW}Vault Telemetry & Performance${NC} (metrics)"
+fi
 echo -e "  Command: ${YELLOW}make grafana-port-forward${NC}"
 echo ""
 echo -e "${BLUE}Prometheus:${NC}"
@@ -192,7 +260,12 @@ echo -e "  Generate test traffic:  ${YELLOW}make test-audit-traffic${NC}"
 echo -e "  Clean up:               ${YELLOW}make clean-audit-monitoring${NC}"
 
 echo -e "\n${GREEN}=== Setup Complete! ===${NC}"
+if [ "$TELEMETRY_ENABLED" = true ]; then
+    echo -e "${GREEN}✓ Audit monitoring and telemetry monitoring deployed${NC}"
+else
+    echo -e "${GREEN}✓ Audit monitoring deployed (telemetry skipped)${NC}"
+fi
 echo -e "${YELLOW}Note: It may take a few minutes for all services to be fully operational.${NC}"
-echo -e "${YELLOW}Use 'make grafana-port-forward' to access the dashboard.${NC}"
+echo -e "${YELLOW}Use 'make grafana-port-forward' to access the dashboards.${NC}"
 
 # Made with Bob

@@ -37,4 +37,36 @@ data:
         static_configs:
           - targets: ['localhost:9090']
 
+      # Vault Telemetry Scraper (requires telemetry enabled in Vault)
+      - job_name: 'vault-telemetry'
+        metrics_path: '/v1/sys/metrics'
+        params:
+          format: ['prometheus']
+        scheme: https
+        tls_config:
+          insecure_skip_verify: true
+        
+        # Use Vault token for authentication
+        bearer_token_file: /vault/token
+        
+        static_configs:
+          - targets: ['host.minikube.internal:8200']
+            labels:
+              service: 'vault'
+              environment: 'local'
+              instance: 'vault-local'
+        
+        # Scrape every 15 seconds (telemetry retention is 5m)
+        scrape_interval: 15s
+        scrape_timeout: 10s
+        
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: __param_target
+          - source_labels: [__param_target]
+            target_label: instance
+            replacement: 'vault-local'
+          - target_label: __address__
+            replacement: 'host.minikube.internal:8200'
+
 # Made with Bob
