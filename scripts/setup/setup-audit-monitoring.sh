@@ -206,26 +206,67 @@ if [ "$TELEMETRY_ENABLED" = true ]; then
         echo -e "${YELLOW}Telemetry monitoring will be disabled${NC}"
         TELEMETRY_ENABLED=false
     else
-        # Step 1: Create a read-only policy in root namespace for sys/metrics access
-        echo -e "${BLUE}Step 1: Creating 'prometheus' policy in root namespace...${NC}"
+        # Step 1: Check and update master-demo-prometheus policy in root namespace
+        echo -e "${BLUE}Step 1: Checking 'master-demo-prometheus' policy in root namespace...${NC}"
         unset VAULT_NAMESPACE  # Ensure we're in root namespace
         export VAULT_SKIP_VERIFY=true
         
-        vault policy write prometheus - <<EOF
+        # Check if policy exists and has master-demo paths
+        POLICY_EXISTS=false
+        POLICY_HAS_MASTER_DEMO=false
+        
+        if vault policy read master-demo-prometheus > /dev/null 2>&1; then
+            POLICY_EXISTS=true
+            echo -e "${GREEN}✓ 'master-demo-prometheus' policy exists${NC}"
+            
+            # Check if it has master-demo namespace access
+            if vault policy read master-demo-prometheus | grep -q "master-demo/sys/metrics"; then
+                POLICY_HAS_MASTER_DEMO=true
+                echo -e "${GREEN}✓ Policy already includes master-demo namespace access${NC}"
+            else
+                echo -e "${YELLOW}⚠ Policy exists but missing master-demo namespace access${NC}"
+                echo -e "${YELLOW}Updating policy...${NC}"
+            fi
+        else
+            echo -e "${YELLOW}Policy does not exist, creating...${NC}"
+        fi
+        
+        # Create or update policy if needed
+        if [ "$POLICY_EXISTS" = false ] || [ "$POLICY_HAS_MASTER_DEMO" = false ]; then
+            vault policy write master-demo-prometheus - <<EOF
 # Read-only access to telemetry metrics for Prometheus scraping
 # This policy is created in the root namespace as sys/metrics is a global endpoint
 path "sys/metrics" {
   capabilities = ["read"]
 }
+
+# Access to master-demo namespace metrics
+path "master-demo/sys/metrics" {
+  capabilities = ["read"]
+}
+
+# List capabilities for master-demo namespace
+path "master-demo/sys/mounts" {
+  capabilities = ["read", "list"]
+}
+
+path "master-demo/sys/auth" {
+  capabilities = ["read", "list"]
+}
 EOF
-        echo -e "${GREEN}✓ 'prometheus' policy created in root namespace${NC}"
+            if [ "$POLICY_EXISTS" = false ]; then
+                echo -e "${GREEN}✓ 'master-demo-prometheus' policy created in root namespace${NC}"
+            else
+                echo -e "${GREEN}✓ 'master-demo-prometheus' policy updated with master-demo namespace access${NC}"
+            fi
+        fi
         
         # Step 2: Create a long-lived token (10 years) for Prometheus
-        echo -e "${BLUE}Step 2: Creating long-lived token with 'prometheus' policy (TTL: 87600h / 10 years)...${NC}"
+        echo -e "${BLUE}Step 2: Creating long-lived token with 'master-demo-prometheus' policy (TTL: 87600h / 10 years)...${NC}"
         
         set +e
         TOKEN_CREATE_OUTPUT=$(vault token create \
-            -policy=prometheus \
+            -policy=master-demo-prometheus \
             -ttl=87600h \
             -display-name="prometheus-telemetry" \
             -format=json 2>&1)

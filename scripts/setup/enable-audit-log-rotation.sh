@@ -91,6 +91,15 @@ echo -e "  - Logs will rotate when they reach 100MB"
 echo -e "  - Keeps 1 rotated file (audit.log.1) plus current file"
 echo -e "  - Logs will also rotate every 24 hours"
 echo -e "  - Maximum disk usage: ~200MB (current + 1 rotated file)"
-echo -e "\n${YELLOW}Note: Vault Enterprise handles rotation automatically - no cron or logrotate needed!${NC}"
+
+echo -e "\n${YELLOW}⚠️  IMPORTANT: Known Issue with Vault Audit Log Rotation${NC}"
+echo -e "${YELLOW}Vault's built-in file rotation doesn't always work reliably, especially on macOS.${NC}"
+echo -e "${YELLOW}The rotation settings are configured, but you may need to manually rotate logs.${NC}"
+echo -e "\n${BLUE}To monitor and manage audit logs:${NC}"
+echo -e "  - Check log size:        ${GREEN}make check-audit-log-size${NC}"
+echo -e "  - Force rotation:        ${GREEN}make force-audit-rotation${NC}"
+echo -e "\n${BLUE}Recommended: Set up a cron job to check log size daily${NC}"
+echo -e "  Run: ${GREEN}crontab -e${NC}"
+echo -e "  Add: ${GREEN}0 2 * * * cd $(pwd) && make check-audit-log-size${NC}"
 
 # Made with Bob

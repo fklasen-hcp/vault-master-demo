@@ -1,5 +1,9 @@
-# Main target for complete local setup
-all-local: start-minikube setup-local-vault install-vso-local install-postgresql-pod setup-postgresql-local deploy-db-ui setup-pki-vault deploy-pki-secrets setup-gitlab-demo setup-audit-monitoring enable-audit-log-rotation port-forward-all
+# Main target for complete master-demo setup
+master-demo: start-minikube setup-local-vault install-vso-local install-postgresql-pod setup-postgresql-local deploy-db-ui setup-pki-vault deploy-pki-secrets setup-gitlab-demo setup-audit-monitoring enable-audit-log-rotation rotate-audit-log-if-needed setup-auto-audit-rotation port-forward-all
+
+# Legacy alias for backward compatibility
+.PHONY: all-local
+all-local: master-demo
 define header
 	$(info Running >>> $(1)$(END))
 endef
@@ -165,11 +169,11 @@ pki-logs:
 .PHONY: all-recover
 all-recover:
 	$(call header,$@)
-	@chmod +x scripts/setup/recover-pki-rotation.sh
-	@./scripts/setup/recover-pki-rotation.sh
-	@echo ""
-	@echo "Starting all port-forwards..."
-	@$(MAKE) port-forward-all
+	@chmod +x scripts/setup/recover-after-reboot.sh
+	@./scripts/setup/recover-after-reboot.sh
+
+.PHONY: recover-after-reboot
+recover-after-reboot: all-recover
 
 # Legacy alias
 .PHONY: recover-pki-rotation
@@ -232,19 +236,23 @@ all-pki: setup-pki-vault deploy-pki-secrets
 	@echo ""
 	@echo "The certificate will auto-renew every ~25 seconds!"
 .PHONY: clean-pki-vault
-clean-pki-vault: clean-all-local
+clean-pki-vault: clean-master-demo
 
 .PHONY: clean-pki-all
-clean-pki-all: clean-all-local
+clean-pki-all: clean-master-demo
 
 .PHONY: clean-vault-all
-clean-vault-all: clean-all-local
+clean-vault-all: clean-master-demo
 
-.PHONY: clean-all-local
-clean-all-local:
+.PHONY: clean-master-demo
+clean-master-demo:
 	$(call header,$@)
 	@chmod +x scripts/cleanup/cleanup-all.sh
 	@./scripts/cleanup/cleanup-all.sh
+
+# Legacy alias for backward compatibility
+.PHONY: clean-all-local
+clean-all-local: clean-master-demo
 
 .PHONY: db-ui-port-forward
 db-ui-port-forward:
@@ -485,13 +493,13 @@ test-gitlab-vault:
 	@./scripts/test/test-gitlab-vault.sh
 
 .PHONY: clean-gitlab
-clean-gitlab: clean-all-local
+clean-gitlab: clean-master-demo
 
 .PHONY: clean-gitlab-vault
-clean-gitlab-vault: clean-all-local
+clean-gitlab-vault: clean-master-demo
 
 .PHONY: clean-gitlab-all
-clean-gitlab-all: clean-all-local
+clean-gitlab-all: clean-master-demo
 
 .PHONY: all-gitlab
 all-gitlab: setup-gitlab-demo
@@ -538,6 +546,46 @@ enable-audit-log-rotation:
 	$(call header,$@)
 	@chmod +x scripts/setup/enable-audit-log-rotation.sh
 	@./scripts/setup/enable-audit-log-rotation.sh
+
+.PHONY: force-audit-rotation
+force-audit-rotation:
+	$(call header,$@)
+	@chmod +x scripts/setup/force-audit-log-rotation.sh
+	@./scripts/setup/force-audit-log-rotation.sh
+
+.PHONY: check-audit-log-size
+check-audit-log-size:
+	$(call header,$@)
+	@echo "Checking audit log size..."
+	@ls -lh ~/audit.log* 2>/dev/null || echo "No audit log files found"
+	@echo ""
+	@AUDIT_SIZE=$$(stat -f%z ~/audit.log 2>/dev/null || stat -c%s ~/audit.log 2>/dev/null || echo "0"); \
+	if [ "$$AUDIT_SIZE" -gt 104857600 ]; then \
+		echo "⚠️  WARNING: Audit log is larger than 100MB ($$(($$AUDIT_SIZE / 1024 / 1024))MB)"; \
+		echo "Run 'make force-audit-rotation' to manually rotate the log"; \
+	else \
+		echo "✓ Audit log size is OK ($$(($$AUDIT_SIZE / 1024 / 1024))MB)"; \
+	fi
+
+.PHONY: rotate-audit-log-if-needed
+rotate-audit-log-if-needed:
+	$(call header,$@)
+	@echo "Checking if audit log rotation is needed..."
+	@chmod +x scripts/setup/auto-rotate-audit-log.sh
+	@./scripts/setup/auto-rotate-audit-log.sh || true
+
+.PHONY: setup-auto-audit-rotation
+setup-auto-audit-rotation:
+	$(call header,$@)
+	@chmod +x scripts/setup/setup-audit-log-rotation-cron.sh
+	@./scripts/setup/setup-audit-log-rotation-cron.sh
+
+.PHONY: update-prometheus-policy
+update-prometheus-policy:
+	$(call header,$@)
+	@echo "Updating Prometheus policy with master-demo namespace access..."
+	@chmod +x scripts/setup/update-prometheus-policy.sh
+	@./scripts/setup/update-prometheus-policy.sh
 
 
 .PHONY: audit-monitoring-status

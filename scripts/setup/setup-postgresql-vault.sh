@@ -39,16 +39,37 @@ if [ -z "$POSTGRES_PORT" ]; then
     echo -e "${YELLOW}PostgreSQL is using ClusterIP. Setting up port-forward...${NC}"
     echo -e "${YELLOW}Note: This requires keeping the port-forward running in the background${NC}"
     
-    # Kill any existing port-forward on 5432
-    pkill -f "kubectl port-forward.*postgres.*5432" || true
-    
-    # Start port-forward in background
-    kubectl port-forward -n postgres svc/postgres-postgresql 5432:5432 &
-    PORT_FORWARD_PID=$!
-    echo -e "${GREEN}Port-forward started with PID: $PORT_FORWARD_PID${NC}"
-    
-    # Wait for port-forward to be ready
-    sleep 5
+    # Check if port-forward is already running
+    if pgrep -f "kubectl port-forward.*postgres.*5432" > /dev/null; then
+        echo -e "${GREEN}Port-forward already running, reusing existing connection${NC}"
+    else
+        # Kill any stale port-forward processes
+        pkill -f "kubectl port-forward.*postgres.*5432" 2>/dev/null || true
+        sleep 2
+        
+        # Start port-forward in background
+        kubectl port-forward -n postgres svc/postgres-postgresql 5432:5432 > /dev/null 2>&1 &
+        PORT_FORWARD_PID=$!
+        echo -e "${GREEN}Port-forward started with PID: $PORT_FORWARD_PID${NC}"
+        
+        # Wait for port-forward to be ready and test connection
+        echo -e "${YELLOW}Waiting for port-forward to be ready...${NC}"
+        sleep 5
+        
+        # Test if port is actually listening
+        for i in {1..10}; do
+            if nc -z 127.0.0.1 5432 2>/dev/null || timeout 1 bash -c "</dev/tcp/127.0.0.1/5432" 2>/dev/null; then
+                echo -e "${GREEN}✓ Port-forward is ready${NC}"
+                break
+            fi
+            if [ $i -eq 10 ]; then
+                echo -e "${RED}Port-forward failed to become ready${NC}"
+                exit 1
+            fi
+            echo -e "${YELLOW}Waiting for port-forward... (attempt $i/10)${NC}"
+            sleep 2
+        done
+    fi
     
     POSTGRES_HOST="127.0.0.1"
     POSTGRES_PORT="5432"

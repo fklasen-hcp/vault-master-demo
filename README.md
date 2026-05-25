@@ -209,24 +209,27 @@ export VAULT_SKIP_VERIFY=true
 export VAULT_TOKEN=your-vault-root-token
 
 # Deploy all demos (dynamic, PKI, GitLab CI) est. time 5-10 to deploy
-make all-local
+make master-demo
 ```
 
 ### After Laptop Sleep / System Recovery
 
-If demos stop working after your laptop sleeps (PKI rotation stops, audit monitoring breaks, etc.), use the recovery helper:
+If demos stop working after your laptop sleeps or after a minikube reboot (VaultAuth resources fail, PKI rotation stops, audit monitoring breaks, etc.), use the enhanced recovery helper:
 
 ```bash
 make all-recover
 ```
 
-This script:
+This script fixes the root cause (stale Kubernetes auth credentials in Vault) and performs a complete recovery:
+- **Reconfigures Vault Kubernetes auth** with fresh credentials from the rebooted cluster
 - Restarts the minikube mount for audit log access
 - Restarts the audit exporter pod
-- Restarts the VSO controller for PKI rotation
-- Verifies PKI certificate status
+- Restarts the VSO controller
+- Restarts all demo deployments (GitLab, Dynamic Secrets, PKI)
+- Verifies all VaultAuth resources are working
+- Starts all port-forwards automatically
 
-It usually restores all functionality after a suspend/resume event.
+This is especially important after a minikube reboot, as the Kubernetes service account tokens and certificates become invalid, causing VSO authentication to fail.
 
 ### Restart After Shutdown
 ```bash
@@ -257,7 +260,7 @@ make all-recover
 ### Complete Cleanup
 ```bash
 # Clean all Vault configuration and demo namespaces (preserves Minikube cluster)
-make clean-all-local
+make clean-master-demo
 
 # To completely remove the Minikube cluster (optional):
 minikube delete
@@ -310,7 +313,7 @@ export VAULT_TOKEN=your-vault-root-token
 ### 3. Deploy Everything
 
 ```bash
-make all-local
+make master-demo
 ```
 
 This single command will:
@@ -325,8 +328,8 @@ This single command will:
 9. ✅ Deploy PKI certificate auto-renewal demo
 
 ### 4. Access the Interactive Demos
+All port-forwards are automatically started by `make master-demo`. Access the demos at:
 
-All port-forwards are automatically started by `make all-local`. Access the demos at:
 
 - **Vault UI**: https://127.0.0.1:8200 (username: demo / password: demo123)
 - **Dynamic DB UI**: http://localhost:8090
@@ -375,7 +378,7 @@ make prometheus-port-forward
 
 ### For UI Demos (Recommended)
 
-Use the username/password login that's automatically created by `make all-local`:
+Use the username/password login that's automatically created by `make master-demo`:
 
 1. Navigate to: `https://127.0.0.1:8200/ui/`
 2. Select **Username** as the authentication method
@@ -409,7 +412,7 @@ vault read master-demo-db/creds/dev-postgres
 - **CLI Access**: Use your root token with `VAULT_NAMESPACE=master-demo`
 - **Operator/Pods**: Use Kubernetes auth (configured automatically)
 
-**Note:** The audit monitoring feature requires a Vault file audit device writing to `~/audit.log`. The setup script (`make all-local`) will automatically:
+**Note:** The audit monitoring feature requires a Vault file audit device writing to `~/audit.log`. The setup script (`make master-demo`) will automatically:
 - Enable the audit device
 - Configure automatic log rotation (100MB max, keeps 1 rotated file, 24h rotation)
 - No manual configuration needed - Vault Enterprise handles rotation automatically!
@@ -822,6 +825,43 @@ make clean-audit-monitoring
 
 #### Troubleshooting
 
+**Audit log not rotating (file grows beyond 100MB):**
+
+Vault's built-in file rotation doesn't work reliably on macOS. The log file can grow to hundreds of MB even though rotation is configured.
+
+**Solution: Set up automatic rotation**
+```bash
+# Set up automatic rotation via cron (checks every 6 hours)
+make setup-auto-audit-rotation
+```
+
+This creates a cron job that:
+- Checks log size every 6 hours
+- Rotates when file exceeds 100MB
+- Keeps only 1 rotated file (compressed)
+- Works without requiring Vault tokens
+- Logs activity to `/tmp/vault-audit-rotation.log`
+
+**How it works:**
+1. Copies `audit.log` to `audit.log.1`
+2. Truncates `audit.log` (Vault continues writing)
+3. Compresses `audit.log.1` to save space
+4. Restarts audit exporter to reset metrics
+
+**Manual rotation:**
+```bash
+# Check current log size
+make check-audit-log-size
+
+# Force rotation immediately (requires VAULT_TOKEN)
+make force-audit-rotation
+```
+
+**View rotation logs:**
+```bash
+tail -f /tmp/vault-audit-rotation.log
+```
+
 **Dashboard shows old data after clearing audit log:**
 ```bash
 # Restart exporter to reset metrics
@@ -1091,7 +1131,7 @@ All Vault resources use the `master-demo-` prefix for easy identification:
 
 ### Complete Setup
 ```bash
-make all-local              # Deploy everything (dynamic + PKI + GitLab CI demo)
+make master-demo            # Deploy everything (dynamic + PKI + GitLab CI demo)
 make all-pki                # Deploy PKI demo only
 make all-gitlab             # Deploy GitLab CI demo only
 ```
@@ -1136,7 +1176,7 @@ make vso-logs               # View VSO operator logs
 
 ### Cleanup
 ```bash
-make clean-all-local        # Remove all demo Vault config and delete the Minikube cluster
+make clean-master-demo      # Remove all demo Vault config and delete the Minikube cluster
 ```
 
 ## Cleanup Options
@@ -1144,7 +1184,7 @@ make clean-all-local        # Remove all demo Vault config and delete the Miniku
 ### Complete Cleanup (Remove Everything)
 ```bash
 # Remove all demo Vault configuration and delete demo namespaces
-make clean-all-local
+make clean-master-demo
 ```
 
 > **Note:** The cleanup script deletes the `vault-secrets-operator-system` namespace, which can take several minutes to terminate due to finalizers. If you don't need to preserve the Minikube cluster for other purposes, you can speed up cleanup by:
@@ -1248,12 +1288,82 @@ make pki-logs
 
 ### Minikube IP Changed After Restart
 
-```bash
-# Reconfigure Vault's Kubernetes auth with new minikube IP
-./setup-local-vault.sh
+After a minikube restart, the Kubernetes API endpoint and certificates change, causing Vault's Kubernetes auth to fail. Use the automated recovery:
 
-# Restart VSO pods to pick up new configuration
-kubectl rollout restart deployment -n vault-secrets-operator-system
+```bash
+make all-recover
+```
+
+This reconfigures Vault's Kubernetes auth with the fresh cluster credentials and restarts all necessary components.
+
+### VaultAuth Resources Not Ready After Reboot
+
+**Symptoms:**
+- `kubectl get vaultauth -A` shows `READY: False` for one or more resources
+- VSO logs show authentication errors like "permission denied" or "invalid token"
+- Demos stop working after minikube reboot
+
+**Root Cause:**
+After a minikube reboot, the Kubernetes service account tokens and CA certificates that Vault uses for authentication become invalid. This breaks the Kubernetes auth method in Vault, preventing VSO from authenticating.
+
+**Solution:**
+Run the automated recovery script:
+
+```bash
+make all-recover
+```
+
+**What the script does:**
+1. Extracts fresh Kubernetes API endpoint and CA certificate
+2. Generates a new service account token
+3. Reconfigures Vault's Kubernetes auth with the fresh credentials
+4. Restarts VSO controller to pick up the changes
+5. Restarts all demo deployments
+6. Verifies all VaultAuth resources are working
+7. Starts port-forwards
+
+**Manual Recovery (if script fails):**
+
+```bash
+# 1. Set environment variables
+export VAULT_ADDR=https://127.0.0.1:8200
+export VAULT_TOKEN=your-token
+export VAULT_NAMESPACE=master-demo
+
+# 2. Get fresh Kubernetes configuration
+KUBE_HOST=$(kubectl config view --raw --minify --flatten -o jsonpath='{.clusters[0].cluster.server}')
+KUBE_CA_CERT=$(kubectl config view --raw --minify --flatten -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d)
+
+# 3. Generate new service account token
+TOKEN_REVIEWER_JWT=$(kubectl create token vault-auth-reviewer -n vault-secrets-operator-system --duration=87600h)
+
+# 4. Reconfigure Vault Kubernetes auth
+vault write auth/master-demo-auth/config \
+    kubernetes_host="$KUBE_HOST" \
+    kubernetes_ca_cert="$KUBE_CA_CERT" \
+    token_reviewer_jwt="$TOKEN_REVIEWER_JWT"
+
+# 5. Restart VSO controller
+kubectl rollout restart deployment/vault-secrets-operator-controller-manager -n vault-secrets-operator-system
+
+# 6. Wait and verify
+sleep 15
+kubectl get vaultauth -A
+```
+
+**Verification:**
+All VaultAuth resources should show `READY: True`:
+
+```bash
+kubectl get vaultauth -A
+```
+
+Expected output:
+```
+NAMESPACE     NAME           READY   VALID
+gitlab-demo   gitlab-auth    True    True
+db-demo       dynamic-auth   True    True
+pki-demo      pki-auth       True    True
 ```
 
 ## License
