@@ -41,9 +41,15 @@ vault audit disable file 2>/dev/null && echo "✓ File audit device disabled" ||
 # Must be done from root namespace (VAULT_NAMESPACE already unset above)
 echo -e "${YELLOW}Deleting master-demo namespace (removes all auth methods, secrets engines, policies, and roles)...${NC}"
 
-# First check if namespace exists
+# Delete Prometheus policy in root namespace FIRST (always, regardless of namespace existence)
+echo -e "${YELLOW}Deleting Prometheus policy in root namespace...${NC}"
+unset VAULT_NAMESPACE
+vault policy delete master-demo-prometheus 2>/dev/null && echo "✓ Prometheus policy deleted" || echo "  Prometheus policy not found"
+
+# Check if namespace exists
 if vault namespace list 2>/dev/null | grep -q "master-demo/"; then
-    # Revoke all leases in the namespace first (prevents database engine deletion issues)
+    
+    # Now work within the namespace
     echo -e "${YELLOW}Revoking all leases in master-demo namespace...${NC}"
     export VAULT_NAMESPACE=master-demo
     
@@ -58,8 +64,10 @@ if vault namespace list 2>/dev/null | grep -q "master-demo/"; then
     vault secrets disable master-demo-db 2>/dev/null && echo "✓ Database engine disabled" || echo "  Database engine not found"
     vault secrets disable master-demo-kv 2>/dev/null && echo "✓ KV engine disabled" || echo "  KV engine not found"
     vault secrets disable master-demo-pki-root 2>/dev/null && echo "✓ PKI root disabled" || echo "  PKI root not found"
-    vault secrets disable -force master-demo-pki-issuing 2>/dev/null && echo "✓ PKI issuing disabled" || echo "  PKI issuing not found"
-    vault secrets disable -force master-demo-transit 2>/dev/null && echo "✓ Transit engine disabled" || echo "  Transit engine not found"
+    vault secrets disable master-demo-pki-issuing 2>/dev/null && echo "✓ PKI issuing disabled" || echo "  PKI issuing not found"
+    vault secrets disable master-demo-transit 2>/dev/null && echo "✓ Transit engine disabled" || echo "  Transit engine not found"
+    vault secrets disable master-demo-encryption-transit 2>/dev/null && echo "✓ Encryption Transit engine disabled" || echo "  Encryption Transit engine not found"
+    vault secrets disable master-demo-encryption-transform 2>/dev/null && echo "✓ Encryption Transform engine disabled" || echo "  Encryption Transform engine not found"
     
     # Disable auth methods
     echo -e "${YELLOW}Disabling auth methods in master-demo namespace...${NC}"
@@ -72,20 +80,22 @@ if vault namespace list 2>/dev/null | grep -q "master-demo/"; then
         vault policy delete "$policy" 2>/dev/null && echo "✓ Policy $policy deleted" || true
     done
     
+    # Unset namespace before attempting to delete it
     unset VAULT_NAMESPACE
     
     # Try to delete the namespace
     DELETE_OUTPUT=$(vault namespace delete master-demo 2>&1)
     DELETE_EXIT_CODE=$?
     
-    # Wait a moment for deletion to complete
-    sleep 2
-    
-    # Verify deletion by checking if namespace still exists
-    if ! vault namespace list 2>/dev/null | grep -q "master-demo/"; then
+    # Check if deletion was queued (Vault Enterprise async deletion)
+    if echo "$DELETE_OUTPUT" | grep -q "Namespace deletion has been queued"; then
+        echo "✓ master-demo namespace deletion queued (async deletion in progress)"
+        echo "  Note: Vault Enterprise deletes namespaces asynchronously in the background"
+    elif [ $DELETE_EXIT_CODE -eq 0 ]; then
+        # Immediate deletion (Vault OSS or small namespace)
         echo "✓ master-demo namespace deleted with all resources"
     else
-        # Deletion failed, check if it's because of child namespaces or other resources
+        # Actual error occurred
         if echo "$DELETE_OUTPUT" | grep -q "child namespaces"; then
             echo -e "${YELLOW}⚠ Namespace has child namespaces, attempting to delete them first...${NC}"
             # List and delete child namespaces
@@ -95,7 +105,10 @@ if vault namespace list 2>/dev/null | grep -q "master-demo/"; then
                 vault namespace delete -namespace=master-demo "$child" 2>/dev/null || true
             done
             # Try deleting parent namespace again
-            if vault namespace delete master-demo 2>/dev/null; then
+            DELETE_OUTPUT=$(vault namespace delete master-demo 2>&1)
+            if echo "$DELETE_OUTPUT" | grep -q "Namespace deletion has been queued"; then
+                echo "✓ master-demo namespace deletion queued (async deletion in progress)"
+            elif [ $? -eq 0 ]; then
                 echo "✓ master-demo namespace deleted with all resources"
             else
                 echo -e "${RED}✗ Failed to delete master-demo namespace${NC}"
@@ -124,12 +137,14 @@ if minikube status | grep -q "host: Running"; then
     kubectl delete vaultdynamicsecret --all -n db-demo --ignore-not-found=true 2>/dev/null || true
     kubectl delete vaultdynamicsecret --all -n pki-demo --ignore-not-found=true 2>/dev/null || true
     kubectl delete vaultstaticsecret --all -n gitlab-demo --ignore-not-found=true 2>/dev/null || true
+    kubectl delete vaultstaticsecret --all -n encryption-demo --ignore-not-found=true 2>/dev/null || true
     kubectl delete vaultpkisecret --all -n pki-demo --ignore-not-found=true 2>/dev/null || true
     
     echo -e "${YELLOW}Deleting demo namespaces...${NC}"
     kubectl delete namespace db-demo --ignore-not-found=true 2>/dev/null && echo "✓ db-demo namespace deleted" || echo "  db-demo namespace not found"
     kubectl delete namespace pki-demo --ignore-not-found=true 2>/dev/null && echo "✓ pki-demo namespace deleted" || echo "  pki-demo namespace not found"
     kubectl delete namespace gitlab-demo --ignore-not-found=true 2>/dev/null && echo "✓ gitlab-demo namespace deleted" || echo "  gitlab-demo namespace not found"
+    kubectl delete namespace encryption-demo --ignore-not-found=true 2>/dev/null && echo "✓ encryption-demo namespace deleted" || echo "  encryption-demo namespace not found"
     kubectl delete namespace audit-monitoring --ignore-not-found=true 2>/dev/null && echo "✓ audit-monitoring namespace deleted" || echo "  audit-monitoring namespace not found"
     kubectl delete namespace postgres --ignore-not-found=true 2>/dev/null && echo "✓ postgres namespace deleted" || echo "  postgres namespace not found"
     kubectl delete namespace vault-secrets-operator-system --ignore-not-found=true 2>/dev/null && echo "✓ vault-secrets-operator-system namespace deleted" || echo "  vault-secrets-operator-system namespace not found"
@@ -139,7 +154,7 @@ if minikube status | grep -q "host: Running"; then
     
     # Force delete any stuck namespaces (common with operator namespaces)
     echo -e "${YELLOW}Checking for stuck namespaces...${NC}"
-    for ns in vault-secrets-operator-system db-demo pki-demo gitlab-demo audit-monitoring postgres; do
+    for ns in vault-secrets-operator-system db-demo pki-demo gitlab-demo encryption-demo audit-monitoring postgres; do
         if kubectl get namespace $ns 2>/dev/null | grep -q "Terminating"; then
             echo -e "${YELLOW}Force deleting stuck namespace: $ns${NC}"
             kubectl get namespace $ns -o json | jq '.spec.finalizers = []' | kubectl replace --raw /api/v1/namespaces/$ns/finalize -f - 2>/dev/null && echo "✓ $ns force deleted" || echo "  $ns already gone"

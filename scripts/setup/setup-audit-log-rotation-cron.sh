@@ -28,15 +28,13 @@ chmod +x "$ROTATION_SCRIPT"
 
 # Check if cron job already exists
 if crontab -l 2>/dev/null | grep -q "$ROTATION_SCRIPT"; then
-    echo -e "${YELLOW}Cron job already exists. Removing old entry...${NC}"
-    crontab -l 2>/dev/null | grep -v "$ROTATION_SCRIPT" | crontab -
+    echo -e "${GREEN}✓ Cron job already exists - skipping setup${NC}"
+else
+    # Add the cron job
+    echo -e "${GREEN}Adding cron job to check audit log every 6 hours...${NC}"
+    (crontab -l 2>/dev/null; echo "$CRON_JOB") | crontab -
+    echo -e "${GREEN}✓ Cron job added successfully${NC}"
 fi
-
-# Add the cron job
-echo -e "${GREEN}Adding cron job to check audit log every 6 hours...${NC}"
-(crontab -l 2>/dev/null; echo "$CRON_JOB") | crontab -
-
-echo -e "${GREEN}✓ Cron job added successfully${NC}"
 
 # Display current crontab
 echo -e "\n${BLUE}Current crontab:${NC}"

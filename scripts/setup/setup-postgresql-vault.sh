@@ -39,16 +39,21 @@ if [ -z "$POSTGRES_PORT" ]; then
     echo -e "${YELLOW}PostgreSQL is using ClusterIP. Setting up port-forward...${NC}"
     echo -e "${YELLOW}Note: This requires keeping the port-forward running in the background${NC}"
     
-    # Check if port-forward is already running
-    if pgrep -f "kubectl port-forward.*postgres.*5432" > /dev/null; then
-        echo -e "${GREEN}Port-forward already running, reusing existing connection${NC}"
-    else
-        # Kill any stale port-forward processes
-        pkill -f "kubectl port-forward.*postgres.*5432" 2>/dev/null || true
-        sleep 2
-        
-        # Start port-forward in background
-        kubectl port-forward -n postgres svc/postgres-postgresql 5432:5432 > /dev/null 2>&1 &
+    # Kill any stale port-forward processes first
+    pkill -f "kubectl port-forward.*postgres.*9998" 2>/dev/null || true
+    sleep 2
+    
+    # Check if port is actually accessible (not just if process exists)
+    PORT_ACCESSIBLE=false
+    if nc -z 127.0.0.1 9998 2>/dev/null || timeout 1 bash -c "</dev/tcp/127.0.0.1/9998" 2>/dev/null; then
+        echo -e "${GREEN}Port 9998 is already accessible, reusing existing connection${NC}"
+        PORT_ACCESSIBLE=true
+    fi
+    
+    # Start port-forward if port is not accessible
+    if [ "$PORT_ACCESSIBLE" = false ]; then
+        echo -e "${YELLOW}Starting port-forward to PostgreSQL...${NC}"
+        kubectl port-forward -n postgres svc/postgres-postgresql 9998:5432 > /dev/null 2>&1 &
         PORT_FORWARD_PID=$!
         echo -e "${GREEN}Port-forward started with PID: $PORT_FORWARD_PID${NC}"
         
@@ -58,7 +63,7 @@ if [ -z "$POSTGRES_PORT" ]; then
         
         # Test if port is actually listening
         for i in {1..10}; do
-            if nc -z 127.0.0.1 5432 2>/dev/null || timeout 1 bash -c "</dev/tcp/127.0.0.1/5432" 2>/dev/null; then
+            if nc -z 127.0.0.1 9998 2>/dev/null || timeout 1 bash -c "</dev/tcp/127.0.0.1/9998" 2>/dev/null; then
                 echo -e "${GREEN}✓ Port-forward is ready${NC}"
                 break
             fi
@@ -72,7 +77,7 @@ if [ -z "$POSTGRES_PORT" ]; then
     fi
     
     POSTGRES_HOST="127.0.0.1"
-    POSTGRES_PORT="5432"
+    POSTGRES_PORT="9998"
 else
     POSTGRES_HOST="$MINIKUBE_IP"
 fi

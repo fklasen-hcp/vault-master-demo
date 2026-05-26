@@ -351,7 +351,7 @@ print_section "Step 9: Starting Port-Forwards"
 print_warning "Stopping any existing port-forwards..."
 pkill -f "kubectl port-forward.*db-demo.*8090" 2>/dev/null || true
 pkill -f "kubectl port-forward.*pki-demo.*8443" 2>/dev/null || true
-pkill -f "kubectl port-forward.*postgres.*5432" 2>/dev/null || true
+pkill -f "kubectl port-forward.*postgres.*9998" 2>/dev/null || true
 pkill -f "kubectl port-forward.*gitlab-demo.*8080" 2>/dev/null || true
 pkill -f "kubectl port-forward.*audit-monitoring.*3000" 2>/dev/null || true
 pkill -f "kubectl port-forward.*audit-monitoring.*9090" 2>/dev/null || true
@@ -371,8 +371,8 @@ if kubectl get namespace pki-demo > /dev/null 2>&1 && kubectl get svc pki-demo-a
 fi
 
 if kubectl get namespace postgres > /dev/null 2>&1 && kubectl get svc postgres-postgresql -n postgres > /dev/null 2>&1; then
-    print_warning "Starting PostgreSQL port-forward (localhost:5432)..."
-    kubectl port-forward -n postgres svc/postgres-postgresql 5432:5432 > /dev/null 2>&1 &
+    print_warning "Starting PostgreSQL port-forward (localhost:9998)..."
+    kubectl port-forward -n postgres svc/postgres-postgresql 9998:5432 > /dev/null 2>&1 &
     sleep 1
 fi
 
@@ -425,7 +425,7 @@ if kubectl get namespace pki-demo > /dev/null 2>&1; then
 fi
 
 if kubectl get namespace postgres > /dev/null 2>&1; then
-    echo -e "${BLUE}🐘 PostgreSQL:${NC}       localhost:5432"
+    echo -e "${BLUE}🐘 PostgreSQL:${NC}       localhost:9998"
 fi
 
 if kubectl get namespace gitlab-demo > /dev/null 2>&1; then

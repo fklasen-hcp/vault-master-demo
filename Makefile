@@ -1,5 +1,5 @@
 # Main target for complete master-demo setup
-master-demo: start-minikube setup-local-vault install-vso-local install-postgresql-pod setup-postgresql-local deploy-db-ui setup-pki-vault deploy-pki-secrets setup-gitlab-demo setup-audit-monitoring enable-audit-log-rotation rotate-audit-log-if-needed setup-auto-audit-rotation port-forward-all
+master-demo: start-minikube setup-local-vault install-vso-local install-postgresql-pod setup-postgresql-local deploy-db-ui setup-pki-vault deploy-pki-secrets setup-encryption-vault deploy-encryption-demo setup-gitlab-demo setup-audit-monitoring enable-audit-log-rotation rotate-audit-log-if-needed setup-auto-audit-rotation port-forward-all
 
 # Legacy alias for backward compatibility
 .PHONY: all-local
@@ -100,7 +100,7 @@ deploy-db-ui:
 	$(call header,$@)
 	@kubectl create ns db-demo || true
 	@sleep 5
-	@kubectl apply -f dynamic-secrets/
+	@kubectl apply -f dynamic-secrets/ -n db-demo
 	@sleep 10
 	@echo "Dynamic secrets - username: $$(kubectl get secrets -n db-demo vso-db-demo -o jsonpath="{.data.username}" | base64 -d), password: $$(kubectl get secrets -n db-demo vso-db-demo -o jsonpath="{.data.password}" | base64 -d)"
 
@@ -131,7 +131,7 @@ db-logs:
 .PHONY: clean-local
 clean-local:
 	$(call header,$@)
-	@kubectl delete ns static-demo db-demo pki-demo postgres gitlab-demo vault-secrets-operator-system || true
+	@kubectl delete ns static-demo db-demo pki-demo encryption-demo postgres gitlab-demo vault-secrets-operator-system || true
 	@helm uninstall vault-secrets-operator -n vault-secrets-operator-system || true
 	@helm uninstall gitlab -n gitlab-demo || true
 
@@ -201,20 +201,20 @@ pki-status:
 pki-port-forward:
 	$(call header,$@)
 	@echo "Port-forwarding PKI demo app..."
-	@echo "Access at: https://localhost:8443 (HTTPS) or http://localhost:9090 (HTTP)"
+	@echo "Access at: http://localhost:10003"
 	@echo "Press Ctrl+C to stop"
 	@echo ""
-	@kubectl port-forward -n pki-demo svc/pki-demo-app 8443:443 9090:80
+	@kubectl port-forward -n pki-demo svc/pki-demo-app 10003:80
 
 .PHONY: postgres-port-forward
 postgres-port-forward:
 	$(call header,$@)
 	@echo "Port-forwarding PostgreSQL..."
-	@echo "PostgreSQL accessible at: localhost:5432"
+	@echo "PostgreSQL accessible at: localhost:9998"
 	@echo "This is required for dynamic secrets demo"
 	@echo "Press Ctrl+C to stop"
 	@echo ""
-	@kubectl port-forward -n postgres svc/postgres-postgresql 5432:5432
+	@kubectl port-forward -n postgres svc/postgres-postgresql 9998:5432
 
 .PHONY: clean-pki
 clean-pki:
@@ -258,10 +258,10 @@ clean-all-local: clean-master-demo
 db-ui-port-forward:
 	$(call header,$@)
 	@echo "Port-forwarding Dynamic DB UI..."
-	@echo "Access at: http://localhost:8090"
+	@echo "Access at: http://localhost:10002"
 	@echo "Press Ctrl+C to stop"
 	@echo ""
-	@kubectl port-forward -n db-demo svc/vso-db-demo-ui 8090:8080
+	@kubectl port-forward -n db-demo svc/vso-db-demo-ui 10002:8080
 
 .PHONY: db-ui-logs
 db-ui-logs:
@@ -297,6 +297,69 @@ clean-db-ui:
 	$(call header,$@)
 	@kubectl delete -f dynamic-secrets/app-deployment-ui.yaml || true
 	@kubectl delete -f dynamic-secrets/service.yaml || true
+## Encryption Demo Targets
+
+.PHONY: setup-encryption-vault
+setup-encryption-vault:
+	$(call header,$@)
+	@chmod +x scripts/setup/setup-encryption-vault.sh
+	@./scripts/setup/setup-encryption-vault.sh
+
+.PHONY: deploy-encryption-demo
+deploy-encryption-demo:
+	$(call header,$@)
+	@kubectl create ns encryption-demo || true
+	@sleep 5
+	@echo "Creating ConfigMap from app-simple.py..."
+	@kubectl create configmap encryption-app --from-file=app.py=encryption-secrets/app-simple.py -n encryption-demo --dry-run=client -o yaml | kubectl apply -f -
+	@echo "Applying other encryption demo resources..."
+	@kubectl apply -f encryption-secrets/service.yaml -n encryption-demo
+	@kubectl apply -f encryption-secrets/vault-auth-encryption.yaml -n encryption-demo
+	@kubectl apply -f encryption-secrets/vault-static-secret.yaml -n encryption-demo
+	@kubectl apply -f encryption-secrets/app-deployment.yaml -n encryption-demo
+	@sleep 10
+	@echo "Encryption Demo deployed!"
+
+.PHONY: encryption-port-forward
+encryption-port-forward:
+	$(call header,$@)
+	@echo "Port-forwarding Encryption Demo UI..."
+	@echo "Access at: http://localhost:10004"
+	@echo "Press Ctrl+C to stop"
+	@echo ""
+	@kubectl port-forward -n encryption-demo svc/encryption-demo-ui 10004:8080
+
+.PHONY: encryption-logs
+encryption-logs:
+	$(call header,$@)
+	@echo "Streaming logs from Encryption Demo..."
+	@echo "Press Ctrl+C to stop"
+	@echo ""
+	@kubectl logs -n encryption-demo -l app=encryption-demo-ui -f --tail=50
+
+.PHONY: encryption-status
+encryption-status:
+	$(call header,$@)
+	@echo "=== Encryption Demo Status ==="
+	@echo ""
+	@echo "VaultAuth:"
+	@kubectl get vaultauth -n encryption-demo
+	@echo ""
+	@echo "VaultStaticSecret:"
+	@kubectl get vaultstaticsecret -n encryption-demo
+	@echo ""
+	@echo "Pods:"
+	@kubectl get pods -n encryption-demo
+	@echo ""
+	@echo "Service:"
+	@kubectl get svc -n encryption-demo
+
+.PHONY: clean-encryption
+clean-encryption:
+	$(call header,$@)
+	@kubectl delete ns encryption-demo || true
+	@echo "Encryption demo cleaned up"
+
 	@echo "DB UI demo cleaned up (keeping VaultAuth and VaultDynamicSecret)"
 
 .PHONY: port-forward-all
@@ -305,40 +368,44 @@ port-forward-all:
 	@echo "Starting all port-forwards in background..."
 	@echo ""
 	@# Kill any existing port-forwards
-	@pkill -f "kubectl port-forward.*db-demo.*8090" 2>/dev/null || true
-	@pkill -f "kubectl port-forward.*pki-demo.*8443" 2>/dev/null || true
-	@pkill -f "kubectl port-forward.*postgres.*5432" 2>/dev/null || true
-	@pkill -f "kubectl port-forward.*gitlab-demo.*8080" 2>/dev/null || true
-	@pkill -f "kubectl port-forward.*audit-monitoring.*3000" 2>/dev/null || true
-	@pkill -f "kubectl port-forward.*audit-monitoring.*9090" 2>/dev/null || true
+	@pkill -f "kubectl port-forward.*db-demo.*10002" 2>/dev/null || true
+	@pkill -f "kubectl port-forward.*pki-demo.*10003" 2>/dev/null || true
+	@pkill -f "kubectl port-forward.*postgres.*9998" 2>/dev/null || true
+	@pkill -f "kubectl port-forward.*gitlab-demo.*10001" 2>/dev/null || true
+	@pkill -f "kubectl port-forward.*encryption-demo.*10004" 2>/dev/null || true
+	@pkill -f "kubectl port-forward.*audit-monitoring.*10000" 2>/dev/null || true
+	@pkill -f "kubectl port-forward.*audit-monitoring.*9999" 2>/dev/null || true
 	@sleep 2
 	@# Start port-forwards in background
-	@echo "Starting Dynamic DB UI port-forward (http://localhost:8090)..."
-	@kubectl port-forward -n db-demo svc/vso-db-demo-ui 8090:8080 > /dev/null 2>&1 &
+	@echo "Starting Dynamic DB UI port-forward (http://localhost:10002)..."
+	@kubectl port-forward -n db-demo svc/vso-db-demo-ui 10002:8080 > /dev/null 2>&1 &
 	@sleep 1
-	@echo "Starting PKI Demo port-forward (https://localhost:8443 or http://localhost:9090)..."
-	@kubectl port-forward -n pki-demo svc/pki-demo-app 8443:443 9090:80 > /dev/null 2>&1 &
+	@echo "Starting PKI Demo port-forward (http://localhost:10003)..."
+	@kubectl port-forward -n pki-demo svc/pki-demo-app 10003:80 > /dev/null 2>&1 &
 	@sleep 1
-	@echo "Starting PostgreSQL port-forward (localhost:5432)..."
-	@kubectl port-forward -n postgres svc/postgres-postgresql 5432:5432 > /dev/null 2>&1 &
+	@echo "Starting Encryption Demo port-forward (http://localhost:10004)..."
+	@kubectl port-forward -n encryption-demo svc/encryption-demo-ui 10004:8080 > /dev/null 2>&1 &
+	@sleep 1
+	@echo "Starting PostgreSQL port-forward (localhost:9998)..."
+	@kubectl port-forward -n postgres svc/postgres-postgresql 9998:5432 > /dev/null 2>&1 &
 	@sleep 1
 	@# Check if GitLab is deployed and start port-forward if it exists
 	@if kubectl get namespace gitlab-demo > /dev/null 2>&1; then \
-		echo "Starting GitLab UI port-forward (http://localhost:8080)..."; \
-		(kubectl port-forward -n gitlab-demo svc/gitlab 8080:80 > /dev/null 2>&1) & \
+		echo "Starting GitLab UI port-forward (http://localhost:10001)..."; \
+		(kubectl port-forward -n gitlab-demo svc/gitlab 10001:80 > /dev/null 2>&1) & \
 		sleep 1; \
 	fi
 	@# Check if audit-monitoring is deployed and start port-forwards if it exists
 	@if kubectl get namespace audit-monitoring > /dev/null 2>&1; then \
 		echo "Waiting for Grafana to be ready..."; \
 		kubectl wait --for=condition=ready pod -l app=grafana -n audit-monitoring --timeout=60s > /dev/null 2>&1 || echo "Grafana not ready yet"; \
-		echo "Starting Grafana port-forward (http://localhost:3000)..."; \
-		(kubectl port-forward -n audit-monitoring svc/grafana 3000:3000 > /dev/null 2>&1) & \
+		echo "Starting Grafana port-forward (http://localhost:10000)..."; \
+		(kubectl port-forward -n audit-monitoring svc/grafana 10000:3000 > /dev/null 2>&1) & \
 		sleep 1; \
 		echo "Waiting for Prometheus to be ready..."; \
 		kubectl wait --for=condition=ready pod -l app=prometheus -n audit-monitoring --timeout=60s > /dev/null 2>&1 || echo "Prometheus not ready yet"; \
-		echo "Starting Prometheus port-forward (http://localhost:9091)..."; \
-		(kubectl port-forward -n audit-monitoring svc/prometheus 9091:9090 > /dev/null 2>&1) & \
+		echo "Starting Prometheus port-forward (http://localhost:9999)..."; \
+		(kubectl port-forward -n audit-monitoring svc/prometheus 9999:9090 > /dev/null 2>&1) & \
 		sleep 1; \
 	fi
 	@echo ""
@@ -350,20 +417,22 @@ port-forward-all:
 	@echo "   Password:         demo123"
 	@echo "   Namespace:        master-demo"
 	@echo ""
-	@echo "📊 Dynamic DB UI:    http://localhost:8090"
-	@echo "🔐 PKI Demo (HTTPS): https://localhost:8443"
-	@echo "🔐 PKI Demo (HTTP):  http://localhost:9090"
-	@echo "🐘 PostgreSQL:       localhost:5432"
+	@echo "🦊 GitLab CE:        http://localhost:10001"
+	@echo "📊 Dynamic DB UI:    http://localhost:10002"
+	@echo "🔐 PKI Demo:         http://localhost:10003"
+	@echo "🔒 Encryption Demo:  http://localhost:10004"
+	@echo "🐘 PostgreSQL:       localhost:9998"
 	@if kubectl get namespace gitlab-demo > /dev/null 2>&1; then \
-		echo "🦊 GitLab CE:        http://localhost:8080"; \
+		echo ""; \
+		echo "GitLab Credentials:"; \
 		echo "   Username:         root"; \
 		echo "   Password:         VaultDemoStr0ng!2026"; \
 	fi
 	@if kubectl get namespace audit-monitoring > /dev/null 2>&1; then \
-		echo "📈 Grafana:          http://localhost:3000"; \
+		echo "📈 Grafana:          http://localhost:10000"; \
 		echo "   Username:         admin"; \
 		echo "   Password:         admin"; \
-		echo "📊 Prometheus:       http://localhost:9091"; \
+		echo "📊 Prometheus:       http://localhost:9999"; \
 	fi
 	@echo ""
 	@echo "To stop all port-forwards: make stop-port-forwards"
@@ -375,6 +444,7 @@ stop-port-forwards:
 	@echo "Stopping all port-forwards..."
 	@pkill -f "kubectl port-forward.*db-demo" 2>/dev/null || true
 	@pkill -f "kubectl port-forward.*pki-demo" 2>/dev/null || true
+	@pkill -f "kubectl port-forward.*encryption-demo" 2>/dev/null || true
 	@pkill -f "kubectl port-forward.*postgres" 2>/dev/null || true
 	@pkill -f "kubectl port-forward.*gitlab-demo" 2>/dev/null || true
 	@pkill -f "kubectl port-forward.*audit-monitoring" 2>/dev/null || true
@@ -433,14 +503,14 @@ gitlab-port-forward:
 	$(call header,$@)
 	@echo "=== GitLab Access Information ==="
 	@echo ""
-	@echo "URL: http://localhost:8080"
+	@echo "URL: http://localhost:10001"
 	@echo "Username: root"
 	@echo "Password: VaultDemoStr0ng!2026"
 	@echo ""
 	@echo "Port-forwarding GitLab UI..."
 	@echo "Press Ctrl+C to stop"
 	@echo ""
-	@kubectl port-forward -n gitlab-demo svc/gitlab 8080:80
+	@kubectl port-forward -n gitlab-demo svc/gitlab 10001:80
 
 .PHONY: gitlab-logs
 gitlab-logs:
@@ -614,19 +684,19 @@ grafana-port-forward:
 	@echo "Port-forwarding Grafana..."
 	@echo "Press Ctrl+C to stop"
 	@echo ""
-	@kubectl port-forward -n audit-monitoring svc/grafana 3000:3000
+	@kubectl port-forward -n audit-monitoring svc/grafana 10000:3000
 
 .PHONY: prometheus-port-forward
 prometheus-port-forward:
 	$(call header,$@)
 	@echo "=== Prometheus Access Information ==="
 	@echo ""
-	@echo "URL: http://localhost:9091"
+	@echo "URL: http://localhost:9999"
 	@echo ""
 	@echo "Port-forwarding Prometheus..."
 	@echo "Press Ctrl+C to stop"
 	@echo ""
-	@kubectl port-forward -n audit-monitoring svc/prometheus 9091:9090
+	@kubectl port-forward -n audit-monitoring svc/prometheus 9999:9090
 
 .PHONY: check-vault-telemetry
 check-vault-telemetry:

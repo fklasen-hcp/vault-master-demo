@@ -1,0 +1,16 @@
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultAuth
+metadata:
+  name: encryption-auth
+  namespace: encryption-demo
+spec:
+  method: kubernetes
+  mount: master-demo-auth
+  namespace: master-demo
+  kubernetes:
+    role: master-demo-auth-role-encryption
+    serviceAccount: encryption-demo-app
+    audiences:
+      - vault
+
+# Made with Bob

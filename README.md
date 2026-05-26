@@ -19,7 +19,8 @@ This repository demonstrates how to use HashiCorp's Vault Secrets Operator (VSO)
   - [1. Static Secrets with GitLab CI/CD Demo](#1-static-secrets-with-gitlab-cicd-demo)
   - [2. Dynamic Secrets Demo](#2-dynamic-secrets-demo)
   - [3. PKI Certificate Auto-Renewal Demo](#3-pki-certificate-auto-renewal-demo)
-  - [4. Audit Monitoring Demo](#4-audit-monitoring-demo)
+  - [4. Encryption as a Service Demo](#4-encryption-as-a-service-demo)
+  - [5. Audit Monitoring Demo](#5-audit-monitoring-demo)
 - [Technical Details: Authentication and Secret Flows](#technical-details-authentication-and-secret-flows)
 - [Vault Resources](#vault-resources-with-master-demo--prefix)
 - [Configuration Files](#configuration-files)
@@ -56,6 +57,7 @@ This setup uses:
 │  │ - Static secrets: GitLab CI/CD (username/password)      │  │
 │  │ - Dynamic secrets: Web UI + DB (auto-rotated creds)    │  │
 │  │ - PKI secrets: Web app (auto-renewed TLS certs)        │  │
+│  │ - Encryption: Web UI (Transit + Transform engines)     │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                                                                 │
 │  ┌──────────────────────────────────────────────────────────┐  │
@@ -88,7 +90,9 @@ This setup uses:
          │ - master-demo-kv      │
          │ - master-demo-db      │
          │ - master-demo-pki     │
-         │ - master-demo-transit (used by VSO) │
+         │ - master-demo-vso-transit-cache (VSO) │
+         │ - master-demo-encryption-transit      │
+         │ - master-demo-encryption-transform    │
          │                 │
          │ Audit Device:   │
          │ - File audit    │
@@ -126,7 +130,7 @@ This setup uses:
                                  │ PromQL
                                  ▼
                         ┌──────────────────────────────┐
-                        │ Grafana :3000                │
+                        │ Grafana :10000               │
                         │                              │
                         │ Vault Audit & Telemetry      │
                         │ Monitoring Dashboard         │
@@ -332,12 +336,13 @@ All port-forwards are automatically started by `make master-demo`. Access the de
 
 
 - **Vault UI**: https://127.0.0.1:8200 (username: demo / password: demo123)
-- **Dynamic DB UI**: http://localhost:8090
-- **PKI Demo**: http://localhost:9090
-- **GitLab**: http://localhost:8080 (root / VaultDemoStr0ng!2026)
-- **Grafana**: http://localhost:3000 (admin/admin)
-- **Prometheus**: http://localhost:9091
-- **PostgreSQL**: localhost:5432
+- **GitLab**: http://localhost:10001 (root / VaultDemoStr0ng!2026)
+- **Dynamic DB UI**: http://localhost:10002
+- **PKI Demo**: http://localhost:10003
+- **Encryption Demo**: http://localhost:10004
+- **Grafana**: http://localhost:10000 (admin/admin)
+- **Prometheus**: http://localhost:9999
+- **PostgreSQL**: localhost:9998
 
 **Manage Port-Forwards:**
 
@@ -449,12 +454,12 @@ Static secrets are stored in Vault's KV v2 engine (`master-demo-kv`) and automat
 
 GitLab CE with a lightweight Kubernetes runner demonstrates how CI/CD pipelines can consume secrets from Vault via VSO.
 
-**Access GitLab** at http://localhost:8080
+**Access GitLab** at http://localhost:10001
 - Username: `root`
 - Password: `VaultDemoStr0ng!2026`
 
 **Demo Flow:**
-1. Open `http://localhost:8080/demo/vault-demo/-/pipelines`
+1. Open `http://localhost:10001/demo/vault-demo/-/pipelines`
 2. Run the pipeline
 3. Inspect job output showing:
    - `/vault/secrets/username`
@@ -513,7 +518,7 @@ Dynamic secrets are generated on-demand by Vault's database engine (`master-demo
 
 #### Option A: Interactive Web UI Demo (Recommended)
 
-The web UI provides a visual, interactive demonstration of dynamic credentials at **http://localhost:8090**
+The web UI provides a visual, interactive demonstration of dynamic credentials at **http://localhost:10002**
 
 **Features:**
 - 🔄 **Real-time credential display** - Watch username/password update every ~30 seconds
@@ -572,7 +577,7 @@ Complement the demo by showing how dynamic roles are actually created and remove
 2. **General tab**: Name: `Demo PostgreSQL`
 3. **Connection tab**:
    - Host: `postgres.postgres.svc.cluster.local`
-   - Port: `5432`
+   - Port: `5432` (internal cluster), `9998` (external via port-forward)
    - Database: `mydb`
    - Username: `postgres`
    - Password: `password`
@@ -585,7 +590,7 @@ Complement the demo by showing how dynamic roles are actually created and remove
 4. Observe automatic cleanup when credentials expire (~30 seconds)
 
 **Enhanced Demo Flow:**
-1. **Web UI** (http://localhost:8090) - Shows current username/password
+1. **Web UI** (http://localhost:10002) - Shows current username/password
 2. **pgAdmin** - Shows the corresponding PostgreSQL role exists in the database
 3. **Wait ~30 seconds** for credential rotation
 4. **Web UI** - Displays new credentials
@@ -603,7 +608,7 @@ Complement the demo by showing how dynamic roles are actually created and remove
 
 Certificates are automatically generated and renewed by Vault's PKI engine (`master-demo-pki-issuing`).
 
-**Access the demo application** at http://localhost:9090
+**Access the demo application** at http://localhost:10003
 
 **Useful commands:**
 ```bash
@@ -646,16 +651,240 @@ make clean-pki-vault
 # Complete PKI cleanup (K8s + Vault)
 make clean-pki-all
 ```
+### 4. Encryption as a Service Demo
 
-### 4. Audit Monitoring Demo
+Demonstrates Vault's **Transit** (encryption) and **Transform** (tokenization with FPE) engines for protecting sensitive data at rest. This interactive demo shows how to encrypt customer data, tokenize credit cards, manage encryption keys, and decrypt individual ciphertexts.
+
+**What This Demo Shows:**
+- **Transit Engine**: Encryption/decryption of sensitive fields (SSN, address)
+- **Transform Engine**: Format-preserving encryption (FPE) for credit cards
+- **Key Rotation**: Rotate encryption keys without re-encrypting data
+- **Re-wrapping**: Update encrypted data to use the latest key version
+- **Batch Operations**: Efficient bulk encryption/decryption
+- **Multi-Region Support**: Generate US or Swedish fake customer data
+- **Interactive Decryption**: Click any cipher cell to decrypt individual values
+
+**Access the demo application** at http://localhost:10001
+
+**Demo Features:**
+
+1. **Data Seeding**
+   - Select region: United States or Sweden
+   - Choose number of rows (1-1000, default 10)
+   - Real-time progress modal with stop button
+   - Clear all data
+
+2. **View Modes**
+   - **Encrypted View**: Shows ciphertext for all fields
+   - **Cleartext View**: Decrypts each record on-demand
+   - **Cleartext (Batch)**: Uses batch API for faster decryption
+   - Displays elapsed time for each operation
+
+3. **Key Management & Decryption**
+   - **Decrypt Cipher**: Click any cipher cell to copy and decrypt it
+   - **Rotate Key**: Increment the Transit key version
+   - **Re-wrap All**: Update all encrypted data to latest key version
+   - View current key version in the header
+
+**Architecture:**
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ Encryption Demo UI (Flask + HTTP Polling)              │
+│ - Real-time data seeding with progress modal           │
+│ - Three view modes (encrypted/cleartext/batch)         │
+│ - Key rotation and re-wrapping                         │
+│ - Interactive cipher decryption                        │
+└────────────┬────────────────────────────────────────────┘
+             │
+             ├──────────────────────────────────────────┐
+             │                                          │
+             ▼                                          ▼
+┌────────────────────────┐              ┌──────────────────────────┐
+│ Vault Transit Engine   │              │ Vault Transform Engine   │
+│ master-demo-encryption-│              │ master-demo-encryption-  │
+│ transit                │              │ transform                │
+│                        │              │                          │
+│ - Encrypts SSN         │              │ - Tokenizes credit cards │
+│ - Encrypts address     │              │ - FPE (16-digit format)  │
+│ - Decrypts ciphers     │              │ - Preserves card format  │
+│ - Supports batch ops   │              │                          │
+│ - Key rotation         │              │                          │
+│ - Re-wrapping          │              │                          │
+└────────────────────────┘              └──────────────────────────┘
+             │                                          │
+             └──────────────┬───────────────────────────┘
+                            │
+                            ▼
+              ┌─────────────────────────┐
+              │ PostgreSQL              │
+              │ encryption_demo DB      │
+              │                         │
+              │ customers table:        │
+              │ - name (plaintext)      │
+              │ - ssn (encrypted)       │
+              │ - address (encrypted)   │
+              │ - credit_card (tokenized)│
+              │ - region (plaintext)    │
+              │ - key_version           │
+              └─────────────────────────┘
+```
+
+**Data Examples:**
+
+*US Customer Data:*
+- Name: John Smith
+- SSN: 123-45-6789 (encrypted with Transit)
+- Address: 123 Main St, New York, NY 10001 (encrypted with Transit)
+- Credit Card: 4532123456789012 (tokenized with Transform FPE)
+
+*Swedish Customer Data:*
+- Name: Anna Andersson
+- Personnummer: 19850315-1234 (encrypted with Transit)
+- Address: Storgatan 1, 111 22 Stockholm (encrypted with Transit)
+- Credit Card: 4532123456789012 (tokenized with Transform FPE)
+
+**Demo Flow:**
+
+1. **Seed Data**
+   ```
+   - Select region (US or Swedish)
+   - Enter row count (default 10)
+   - Click "Seed Data"
+   - Watch real-time progress modal with current customer name
+   - Stop seeding mid-operation if needed
+   - Each row is encrypted/tokenized before storage
+   ```
+
+2. **View Encrypted Data**
+   ```
+   - Click "Encrypted View"
+   - See ciphertext: vault:v1:abc123...
+   - See tokenized cards: 4532987654321098
+   - Note: Cards maintain 16-digit format (FPE)
+   - Click any cipher cell to copy and decrypt it
+   ```
+
+3. **Decrypt Individual Ciphers**
+   ```
+   - Click any cipher cell in the table
+   - Cipher is copied to clipboard and decrypt input field
+   - Click "Decrypt Cipher" button
+   - See decrypted plaintext value with timing
+   ```
+
+4. **View Cleartext Data**
+   ```
+   - Click "Cleartext View" (single decryption)
+   - Or "Cleartext (Batch)" (faster bulk decryption)
+   - See original plaintext values
+   - Compare elapsed times between modes
+   ```
+
+5. **Rotate Encryption Key**
+   ```
+   - Click "Rotate Key"
+   - Key version increments (v1 → v2)
+   - Existing data still uses old version
+   - New data uses new version
+   - Current key version shown in header
+   ```
+
+6. **Re-wrap Data**
+   ```
+   - Click "Re-wrap All (Batch)"
+   - All encrypted data updated to latest key version
+   - No decryption/re-encryption needed
+   - Vault handles re-wrapping internally
+   ```
+
+**Technical Details:**
+
+**Transit Engine:**
+- Path: `master-demo-encryption-transit`
+- Key: `customer-key`
+- Algorithm: AES256-GCM96
+- Supports: encrypt, decrypt, rewrap, rotate
+- Batch operations for performance
+
+**Transform Engine:**
+- Path: `master-demo-encryption-transform`
+- Transformation: `credit-card-fpe`
+- Type: Format-Preserving Encryption (FPE)
+- Template: 16-digit credit card format
+- Preserves: Length and format (looks like a valid card)
+
+**Why FPE for Credit Cards?**
+- Maintains data format (16 digits)
+- Compatible with existing systems
+- Passes validation checks
+- Reduces application changes
+
+**Key Rotation vs Re-wrapping:**
+- **Rotation**: Creates new key version, doesn't touch data
+- **Re-wrapping**: Updates data to use latest key version
+- Re-wrapping is cryptographically efficient (no decrypt/encrypt)
+
+**Makefile Targets:**
+
+```bash
+# Setup and deploy
+make setup-encryption-vault    # Configure Vault engines
+make deploy-encryption-demo    # Deploy to Kubernetes
+
+# Access and monitor
+make encryption-port-forward   # Access UI (http://localhost:10001)
+make encryption-logs          # View application logs
+make encryption-status        # Check deployment status
+
+# Cleanup
+make clean-encryption         # Remove Kubernetes resources
+```
+
+**Vault Configuration:**
+
+The setup script creates:
+- Transit engine with `customer-key`
+- Transform engine with FPE transformation
+- PostgreSQL database `encryption_demo`
+- Policy `master-demo-encryption-policy`
+- Kubernetes auth role `master-demo-auth-role-encryption`
+
+**Performance Comparison:**
+
+| Operation | Single | Batch | Improvement |
+|-----------|--------|-------|-------------|
+| Decrypt 50 records | ~2.5s | ~0.5s | 5x faster |
+| Rewrap 50 records | ~2.5s | ~0.5s | 5x faster |
+
+*Batch operations significantly improve performance for bulk data operations.*
+
+**Security Benefits:**
+
+1. **Data Protection**: Sensitive data encrypted at rest
+2. **Key Management**: Centralized key rotation and versioning
+3. **Compliance**: Meet regulatory requirements (PCI-DSS, GDPR)
+4. **Audit Trail**: All encryption operations logged
+5. **Format Preservation**: FPE maintains data usability
+
+**Use Cases:**
+
+- **Healthcare**: Encrypt patient SSN, medical records
+- **Finance**: Tokenize credit cards, encrypt account numbers
+- **E-commerce**: Protect customer PII
+- **SaaS**: Multi-tenant data encryption
+- **Compliance**: GDPR, HIPAA, PCI-DSS requirements
+
+
+### 5. Audit Monitoring Demo
 
 Real-time monitoring and visualization of Vault operations through Prometheus and Grafana, with two complementary dashboards:
 - **Audit Dashboard** - Security and compliance monitoring from audit logs
 - **Telemetry Dashboard** - Performance and health metrics (optional, requires telemetry enabled)
 
 **Access the dashboards:**
-- **Grafana**: http://localhost:3000 (admin/admin)
-- **Prometheus**: http://localhost:9091
+- **Grafana**: http://localhost:10000 (admin/admin)
+- **Prometheus**: http://localhost:9999
 
 **Generate test traffic:**
 ```bash
@@ -695,7 +924,7 @@ make check-vault-telemetry
 - Two pre-configured dashboards
 - Audit: 15 panels, 5-second refresh
 - Telemetry: 15 panels, 10-second refresh (if enabled)
-- Port: 3000
+- Port: 10000
 - Default credentials: admin/admin
 - Resource usage: ~256MB memory, ~100m CPU
 
@@ -788,9 +1017,9 @@ Native Vault performance and health metrics - 15 panels:
 - Prometheus retention: 15 days
 
 **Access URLs:**
-- Grafana: http://localhost:3000 (admin/admin)
-- Prometheus: http://localhost:9091
-- Exporter metrics: http://localhost:9091/metrics
+- Grafana: http://localhost:10000 (admin/admin)
+- Prometheus: http://localhost:9999
+- Exporter metrics: http://localhost:9999/metrics
 
 #### What You'll See
 
@@ -885,19 +1114,19 @@ vault audit list
 **No metrics in Prometheus:**
 ```bash
 # Check if Prometheus can reach exporter
-kubectl port-forward -n audit-monitoring svc/vault-audit-exporter 9091:9091 &
-curl http://localhost:9091/metrics
+kubectl port-forward -n audit-monitoring svc/vault-audit-exporter 9999:9091 &
+curl http://localhost:9999/metrics
 
 # Check Prometheus targets
 make prometheus-port-forward
-# Open: http://localhost:9091/targets
+# Open: http://localhost:9999/targets
 ```
 
 **Dashboard shows no data:**
 ```bash
 # Verify Prometheus has data
 make prometheus-port-forward
-# Open: http://localhost:9091/graph
+# Open: http://localhost:9999/graph
 # Query: vault_audit_requests_total
 
 # Check Grafana datasource configuration
@@ -1154,10 +1383,11 @@ make setup-gitlab-demo      # Complete GitLab CI demo setup
 make port-forward-all       # Start ALL port-forwards in background (recommended!)
 make stop-port-forwards     # Stop all port-forwards
 make status-port-forwards   # Check which port-forwards are running
-make db-ui-port-forward     # Access DB UI demo only (http://localhost:8090)
-make pki-port-forward       # Access PKI demo only (https://localhost:8443)
-make postgres-port-forward  # Port-forward PostgreSQL only (localhost:5432)
-make gitlab-port-forward    # Port-forward GitLab UI (http://localhost:8080)
+make db-ui-port-forward     # Access DB UI demo only (http://localhost:10002)
+make pki-port-forward       # Access PKI demo only (http://localhost:10003)
+make encryption-port-forward # Access Encryption demo only (http://localhost:10001)
+make postgres-port-forward  # Port-forward PostgreSQL only (localhost:9998)
+make gitlab-port-forward    # Port-forward GitLab UI (http://localhost:10004)
 ```
 
 ### Monitoring & Testing
@@ -1258,7 +1488,7 @@ ps aux | grep "port-forward.*postgres"
 make postgres-port-forward &
 
 # Or manually
-kubectl port-forward -n postgres svc/postgres-postgresql 5432:5432 &
+kubectl port-forward -n postgres svc/postgres-postgresql 9998:5432 &
 
 # Test Vault can connect to PostgreSQL
 vault read master-demo-db/creds/dev-postgres

@@ -228,10 +228,17 @@ button:active {
 }
 
 button:disabled {
-    background: #333333;
-    color: #666666;
-    cursor: not-allowed;
-    transform: none;
+    background: #333333 !important;
+    color: #666666 !important;
+    cursor: not-allowed !important;
+    transform: none !important;
+    opacity: 0.5;
+}
+
+button:disabled:hover {
+    background: #333333 !important;
+    transform: none !important;
+    box-shadow: none !important;
 }
 ```
 
