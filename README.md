@@ -20,7 +20,8 @@ This repository demonstrates how to use HashiCorp's Vault Secrets Operator (VSO)
   - [2. Dynamic Secrets Demo](#2-dynamic-secrets-demo)
   - [3. PKI Certificate Auto-Renewal Demo](#3-pki-certificate-auto-renewal-demo)
   - [4. Encryption as a Service Demo](#4-encryption-as-a-service-demo)
-  - [5. Audit Monitoring Demo](#5-audit-monitoring-demo)
+  - [5. Control Groups Demo](#5-control-groups-demo)
+  - [6. Audit Monitoring Demo](#6-audit-monitoring-demo)
 - [Technical Details: Authentication and Secret Flows](#technical-details-authentication-and-secret-flows)
 - [Vault Resources](#vault-resources-with-master-demo--prefix)
 - [Configuration Files](#configuration-files)
@@ -340,6 +341,7 @@ All port-forwards are automatically started by `make master-demo`. Access the de
 - **Dynamic DB UI**: http://localhost:10002
 - **PKI Demo**: http://localhost:10003
 - **Encryption Demo**: http://localhost:10004
+- **Control Groups Demo**: http://localhost:10005
 - **Grafana**: http://localhost:10000 (admin/admin)
 - **Prometheus**: http://localhost:9999
 - **PostgreSQL**: localhost:9998
@@ -873,10 +875,115 @@ The setup script creates:
 - **Finance**: Tokenize credit cards, encrypt account numbers
 - **E-commerce**: Protect customer PII
 - **SaaS**: Multi-tenant data encryption
+
+### 5. Control Groups Demo
+
+**Vault Enterprise Feature**: Multi-party authorization for sensitive secrets
+
+This demo showcases Vault's Control Groups feature, which requires multiple authorized users to approve access to sensitive secrets before they can be retrieved. It implements a "two-person rule" or "four-eyes principle" for secret access.
+
+**Architecture:**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Control Groups Demo UI (Flask)                                  │
+│                                                                  │
+│ ┌─────────────────────────────────────────────────────────────┐ │
+│ │ Interactive Flow Diagram        │  Real-time Audit Log      │ │
+│ │ Request → Control Group →       │  [--:--:--] Event         │ │
+│ │ Approve → Unwrap                │  [--:--:--] Event         │ │
+│ └─────────────────────────────────────────────────────────────┘ │
+│                                                                  │
+│ ┌──────────────────────┬──────────────────────────────────────┐ │
+│ │ User Panel           │ Admin Panel (Role Switcher)          │ │
+│ │ - Request secrets    │ - Ops Team / Security Team           │ │
+│ │ - View status        │ - Approve/Deny requests              │ │
+│ │ - Unwrap approved    │ - View pending approvals             │ │
+│ │ - Clear requests     │                                      │ │
+│ └──────────────────────┴──────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Vault Control Groups                                            │
+│ - Non-critical secrets: 1/2 approval (ops OR security)         │
+│ - Critical secrets: 2/2 approvals (ops AND security)           │
+│ - Wrapped responses with authorization workflow                │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Features:**
+- **Interactive Flow Diagram**: Visual 4-step workflow with real-time highlighting
+  - Step 1: Request (user requests secret)
+  - Step 2: Control Group (authorizers assigned)
+  - Step 3: Approve (required approvals)
+  - Step 4: Unwrap (access granted)
+- **Real-time Audit Log**: Live event tracking showing all Control Groups activities
+- **User Panel**: Request access to secrets, view request status, unwrap approved secrets, clear all requests
+- **Admin Panel**: Role switcher (Ops/Security), approve or deny pending requests
+- **Two Approval Tiers**:
+  - `dev/*` secrets: Require 1 of 2 approvals (ops OR security)
+  - `prod/*` secrets: Require 2 of 2 approvals (ops AND security)
+- **Visual Status Indicators**: Pending (⏳), Approved (✓), Denied (✗)
+
+**Demo Secrets:**
+- `secret/data/dev/api-key` - Development API key (1/2 approval)
+- `secret/data/dev/database` - Development database credentials (1/2 approval)
+- `secret/data/prod/db-password` - Production database password (2/2 approvals)
+- `secret/data/prod/encryption-key` - Production encryption key (2/2 approvals)
+
+**Workflow:**
+1. **User requests secret**: Select a secret path and click "Request Access"
+2. **Request created**: User sees pending request with approval status
+3. **Admin approves**: Switch to Ops or Security role and approve the request
+4. **Additional approval** (for prod secrets): Switch to the other role and approve again
+5. **User unwraps**: Once approved, click "Unwrap Secret" to retrieve the actual secret
+
+**Access:**
+```bash
+# Port-forward the UI
+make controlgroups-port-forward
+
+# Access at http://localhost:10005
+```
+
+**Setup (included in master-demo):**
+```bash
+# Setup Vault configuration
+make setup-controlgroups-vault
+
+# Deploy the demo
+make deploy-controlgroups-demo
+```
+
+**Manual Testing:**
+```bash
+# View logs
+make controlgroups-logs
+
+# Check status
+make controlgroups-status
+
+# Clean up
+make clean-controlgroups
+```
+
+**Vault Configuration:**
+- **Policies**: `master-demo-controlgroups-user`, `master-demo-controlgroups-ops`, `master-demo-controlgroups-security`
+- **Identity Groups**: `ops-team`, `security-team`
+- **Kubernetes Auth Roles**: Separate roles for user, ops, and security personas
+- **Control Group Factors**: Configured per secret path with different approval requirements
+
+**Use Cases:**
+- Production secret access requiring multiple approvals
+- Compliance requirements (SOX, PCI-DSS, HIPAA)
+- Break-glass scenarios with audit trail
+- Separation of duties enforcement
+- High-value asset protection
+
 - **Compliance**: GDPR, HIPAA, PCI-DSS requirements
 
 
-### 5. Audit Monitoring Demo
+### 6. Audit Monitoring Demo
 
 Real-time monitoring and visualization of Vault operations through Prometheus and Grafana, with two complementary dashboards:
 - **Audit Dashboard** - Security and compliance monitoring from audit logs

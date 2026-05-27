@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: controlgroups-demo-ui
+  namespace: controlgroups-demo
+spec:
+  selector:
+    app: controlgroups-demo-ui
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
+
+# Made with Bob

@@ -1,5 +1,5 @@
 # Main target for complete master-demo setup
-master-demo: start-minikube setup-local-vault install-vso-local install-postgresql-pod setup-postgresql-local deploy-db-ui setup-pki-vault deploy-pki-secrets setup-encryption-vault deploy-encryption-demo setup-gitlab-demo setup-audit-monitoring enable-audit-log-rotation rotate-audit-log-if-needed setup-auto-audit-rotation port-forward-all
+master-demo: start-minikube setup-local-vault install-vso-local install-postgresql-pod setup-postgresql-local deploy-db-ui setup-pki-vault deploy-pki-secrets setup-encryption-vault deploy-encryption-demo setup-controlgroups-vault deploy-controlgroups-demo setup-gitlab-demo setup-audit-monitoring enable-audit-log-rotation rotate-audit-log-if-needed setup-auto-audit-rotation port-forward-all
 
 # Legacy alias for backward compatibility
 .PHONY: all-local
@@ -357,6 +357,62 @@ encryption-status:
 .PHONY: clean-encryption
 clean-encryption:
 	$(call header,$@)
+
+# ============================================
+# Control Groups Demo
+# ============================================
+
+.PHONY: setup-controlgroups-vault
+setup-controlgroups-vault:
+	$(call header,$@)
+	@chmod +x scripts/setup/setup-controlgroups-vault.sh
+	@./scripts/setup/setup-controlgroups-vault.sh
+
+.PHONY: deploy-controlgroups-demo
+deploy-controlgroups-demo:
+	$(call header,$@)
+	@kubectl create ns controlgroups-demo || true
+	@sleep 5
+	@echo "Creating ConfigMap from app.py..."
+	@kubectl create configmap controlgroups-app --from-file=app.py=control-groups/app.py -n controlgroups-demo --dry-run=client -o yaml | kubectl apply -f -
+	@echo "Applying other control groups demo resources..."
+	@kubectl apply -f control-groups/service.yaml -n controlgroups-demo
+	@kubectl apply -f control-groups/app-deployment.yaml -n controlgroups-demo
+	@sleep 10
+	@echo "Control Groups Demo deployed!"
+
+.PHONY: controlgroups-port-forward
+controlgroups-port-forward:
+	$(call header,$@)
+	@echo "Port-forwarding Control Groups Demo UI..."
+	@echo "Access at: http://localhost:10005"
+	@echo "Press Ctrl+C to stop"
+	@echo ""
+	@kubectl port-forward -n controlgroups-demo svc/controlgroups-demo-ui 10005:8080
+
+.PHONY: controlgroups-logs
+controlgroups-logs:
+	$(call header,$@)
+	@echo "Streaming logs from Control Groups Demo..."
+	@echo "Press Ctrl+C to stop"
+	@echo ""
+	@kubectl logs -n controlgroups-demo -l app=controlgroups-demo-ui -f --tail=50
+
+.PHONY: controlgroups-status
+controlgroups-status:
+	$(call header,$@)
+	@echo "=== Control Groups Demo Status ==="
+	@echo ""
+	@echo "Pods:"
+	@kubectl get pods -n controlgroups-demo
+	@echo ""
+	@echo "Service:"
+	@kubectl get svc -n controlgroups-demo
+
+.PHONY: clean-controlgroups
+clean-controlgroups:
+	$(call header,$@)
+	@kubectl delete ns controlgroups-demo || true
 	@kubectl delete ns encryption-demo || true
 	@echo "Encryption demo cleaned up"
 

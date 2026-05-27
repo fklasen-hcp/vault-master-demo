@@ -2,6 +2,47 @@
 
 This document defines the consistent design system for all Vault demo applications, based on HashiCorp Vault's official branding.
 
+## Layout Standards
+
+### Page Zoom
+All demo applications should use `zoom: 0.8` on the body element to make the interface more compact and fit more content on screen.
+
+### Vault Logo Background
+All applications must include the Vault logo as a subtle background watermark:
+- Position: Fixed, left side of viewport
+- Size: 600px × 600px
+- Opacity: 0.08
+- Color: Yellow (#FFD814)
+- Z-index: 0 (behind all content)
+- Non-interactive (pointer-events: none)
+
+```css
+body::before {
+    content: '';
+    position: fixed;
+    top: 50%;
+    left: -100px;
+    transform: translateY(-50%);
+    width: 600px;
+    height: 600px;
+    background-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjggMTI4Ij48cGF0aCBmaWxsPSIjZmZkODE0IiBkPSJtMCAxLjk1MyA2My43NiAxMjQuMDk0TDEyOCAxLjk1M1ptNTMuODQxIDQ5LjI1NEg0My42ODRWNDEuMDZINTMuODR6bTAtMTUuMjI3SDQzLjY4NFYyNS44MjJINTMuODRaTTY5LjA4IDY2LjQ0NEg1OC45N1Y1Ni4yODZoMTAuMTA4em0wLTE1LjIzN0g1OC45N1Y0MS4wNmgxMC4xMDh6bTAtMTUuMjI3SDU4Ljk3VjI1LjgyMmgxMC4xMDhabTE1LjE0NyAxNS4yMjdINzQuMDI3VjQxLjA2aDEwLjE1OVpNNzQuMDI3IDM1Ljk4VjI1LjgyMmgxMC4xNTlWMzUuOTh6Ii8+PC9zdmc+');
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: contain;
+    opacity: 0.08;
+    pointer-events: none;
+    z-index: 0;
+}
+```
+
+### No Emojis
+Do not use emojis in the UI. Use text labels only.
+
+### Title Naming Convention
+- Remove "Demo" from titles (e.g., "Vault Control Groups" not "Vault Control Groups Demo")
+- Keep titles concise and professional
+- No subtitles in the header section
+
 ## Color Palette
 
 ### Primary Colors
@@ -40,8 +81,8 @@ font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
 ### Font Sizes & Weights
 
 #### Headings
-- **H1 (Page Title)**: 28px, weight 700, letter-spacing -0.02em, color #FFD814
-- **H2 (Section Title)**: 18px, weight 700, letter-spacing -0.01em, color #FFD814
+- **H1 (Page Title in Header)**: 28px, weight 700, letter-spacing -0.02em, color #FFFFFF (white, not yellow)
+- **H2 (Section Title)**: 18px, weight 700, letter-spacing -0.01em, color #FFFFFF (white, not yellow)
 - **H3 (Subsection)**: 16px, weight 600, color #FFD814
 
 #### Body Text
@@ -73,37 +114,38 @@ font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
 ```
 
 ### Header (Title Section)
-**Important**: Headers should be separate from content containers and centered.
+**Important**:
+- Headers should be separate from content containers and centered
+- H1 in header must be WHITE (#FFFFFF), not yellow
+- No subtitles - keep header simple with just the title
 
 ```css
 .header {
     background: #1a1a1a;
     border: 2px solid #333333; /* Gray border, not yellow */
     border-radius: 8px;
-    padding: 30px;
+    padding: 20px; /* Reduced from 30px for compactness */
     margin-bottom: 20px;
     max-width: 1000px-1400px; /* Match container width */
     margin: 0 auto 20px auto; /* Center the header */
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .header h1 {
-    color: #FFD814;
+    color: #FFFFFF; /* WHITE, not yellow */
     font-size: 28px;
-    margin-bottom: 10px;
+    margin: 0; /* No margin when centered */
     font-weight: 700;
     letter-spacing: -0.02em;
     text-align: center; /* Always center titles */
 }
-
-.header p {
-    color: #CCCCCC;
-    font-size: 15px;
-    font-weight: 400;
-    text-align: center; /* Center subtitles */
-}
 ```
 
 ### Panel
+**H2 section titles must be WHITE (#FFFFFF) with GRAY (#333333) borders, not yellow.**
+
 ```css
 .panel {
     background: #1a1a1a;
@@ -112,17 +154,12 @@ font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
     border-radius: 8px;
 }
 
-.panel:hover {
-    border-color: #FFD814; /* Yellow on hover only */
-    box-shadow: 0 0 15px rgba(255, 216, 20, 0.1);
-}
-
-.panel h2 {
-    color: #FFD814;
+h2 {
+    color: #FFFFFF; /* WHITE, not yellow */
     font-size: 18px;
     margin-bottom: 20px;
     padding-bottom: 10px;
-    border-bottom: 2px solid #FFD814;
+    border-bottom: 2px solid #333333; /* GRAY border, not yellow */
     font-weight: 700;
     letter-spacing: -0.01em;
 }
