@@ -562,15 +562,13 @@ data:
             }
 
             function clearRecords() {
-                if (confirm('Clear all records?')) {
-                    fetch('/api/clear', {method: 'POST'})
-                        .then(r => r.json())
-                        .then(data => {
-                            document.getElementById('operation-result').innerHTML =
-                                `<strong>Success</strong>${data.message}`;
-                            loadActivity();
-                        });
-                }
+                fetch('/api/clear', {method: 'POST'})
+                    .then(r => r.json())
+                    .then(data => {
+                        document.getElementById('operation-result').innerHTML =
+                            `<strong>Success</strong>${data.message}`;
+                        loadActivity();
+                    });
             }
 
             function loadActivity() {

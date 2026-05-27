@@ -714,8 +714,6 @@ HTML_TEMPLATE = '''
         }
         
         function clearData() {
-            if (!confirm('Clear all customer data?')) return;
-            
             disableAllButtons();
             
             fetch('/api/clear', {method: 'POST'})
@@ -794,8 +792,6 @@ HTML_TEMPLATE = '''
         }
         
         function rotateKey() {
-            if (!confirm('Rotate the Transit encryption key?')) return;
-            
             disableAllButtons();
             const startTime = Date.now();
             document.getElementById('view-status').innerHTML = '<strong>ROTATING KEY...</strong><br>Please wait...';
@@ -814,8 +810,6 @@ HTML_TEMPLATE = '''
         }
         
         function rewrapAll() {
-            if (!confirm('Re-wrap all encrypted data to the latest key version?')) return;
-            
             disableAllButtons();
             const startTime = Date.now();
             document.getElementById('view-status').innerHTML = '<strong>RE-WRAPPING...</strong><br>Please wait...';

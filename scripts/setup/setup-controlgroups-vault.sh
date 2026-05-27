@@ -120,7 +120,7 @@ path "sys/control-group/request" {
 EOF
 echo -e "${GREEN}✓ User policy created${NC}"
 
-# Policy for ops team (can authorize requests)
+# Policy for ops team (can authorize requests and read secrets)
 echo -e "${YELLOW}Creating ops policy...${NC}"
 vault policy write master-demo-controlgroups-ops - <<EOF
 # Allow authorizing control group requests
@@ -136,10 +136,19 @@ path "sys/control-group/request" {
 path "sys/control-group/info" {
   capabilities = ["read"]
 }
+
+# Allow reading secrets (needed for unwrapping after approval)
+path "master-demo-kv/data/dev/*" {
+  capabilities = ["read"]
+}
+
+path "master-demo-kv/data/prod/*" {
+  capabilities = ["read"]
+}
 EOF
 echo -e "${GREEN}✓ Ops policy created${NC}"
 
-# Policy for security team (can authorize requests)
+# Policy for security team (can authorize requests and read secrets)
 echo -e "${YELLOW}Creating security policy...${NC}"
 vault policy write master-demo-controlgroups-security - <<EOF
 # Allow authorizing control group requests
@@ -153,6 +162,15 @@ path "sys/control-group/request" {
 
 # Allow reading control group info
 path "sys/control-group/info" {
+  capabilities = ["read"]
+}
+
+# Allow reading secrets (needed for unwrapping after approval)
+path "master-demo-kv/data/dev/*" {
+  capabilities = ["read"]
+}
+
+path "master-demo-kv/data/prod/*" {
   capabilities = ["read"]
 }
 EOF

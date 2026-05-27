@@ -179,11 +179,12 @@ def unwrap_secret():
         if req['status'] != 'approved':
             return jsonify({'error': 'Request not approved yet'}), 403
         
-        # Simulate unwrapping the wrapped token to get the actual secret
+        # After approval, use an authorized token (ops) to read the secret
         # In a real Control Groups setup, we'd use the wrapped token to unwrap
-        # Here we fetch the secret directly to simulate the unwrapped result
+        # Here we use an ops token to simulate the unwrapped result after approval
         try:
-            client = get_vault_client('user')
+            # Use ops token since the request has been approved
+            client = get_vault_client('ops')
             
             secret_path = req['path'].replace('secret/data/', '')
             response = client.secrets.kv.v2.read_secret_version(
@@ -200,11 +201,22 @@ def unwrap_secret():
                 'secret': secret_data
             })
         except Exception as vault_error:
+            # Log the actual error for debugging
+            import traceback
+            error_details = {
+                'error_type': type(vault_error).__name__,
+                'error_message': str(vault_error),
+                'traceback': traceback.format_exc()
+            }
+            print(f"ERROR reading secret: {error_details}")
+            
             # If secret doesn't exist, return simulated data for demo
             secret_name = req['path'].split('/')[-1]
             simulated_secret = {
-                'note': 'Simulated secret data (actual secret not found in Vault)',
+                'note': f'Simulated secret data (Error: {str(vault_error)})',
                 'path': req['path'],
+                'secret_path_used': secret_path,
+                'mount_point': 'master-demo-kv',
                 'value': f'secret-value-for-{secret_name}'
             }
             req['secret_data'] = simulated_secret
