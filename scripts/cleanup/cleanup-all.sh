@@ -35,7 +35,7 @@ echo -e "\n${GREEN}Cleaning all Vault demo configuration...${NC}"
 # Disable audit device first (must be done in root namespace - audit devices are global)
 echo -e "${YELLOW}Disabling audit device...${NC}"
 unset VAULT_NAMESPACE
-vault audit disable file 2>/dev/null && echo "✓ File audit device disabled" || echo "  File audit device not found"
+vault audit disable master-demo-audit 2>/dev/null && echo "✓ Master-demo audit device disabled" || echo "  Master-demo audit device not found"
 
 # Delete the master-demo namespace (this removes ALL resources inside it automatically)
 # Must be done from root namespace (VAULT_NAMESPACE already unset above)

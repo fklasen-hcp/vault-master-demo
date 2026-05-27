@@ -158,9 +158,9 @@ This setup uses:
 ### Vault Configuration Requirements
 
 #### Required: Audit Device
-File audit device must be enabled (automatically configured by setup scripts):
+Master-demo audit device must be enabled (automatically configured by setup scripts):
 ```hcl
-# Enabled via: vault audit enable file file_path="$HOME/audit.log"
+# Enabled via: vault audit enable -path=master-demo-audit file file_path="$HOME/audit.log"
 ```
 
 #### Optional: Telemetry (Recommended)
@@ -312,7 +312,7 @@ export VAULT_SKIP_VERIFY=true
 export VAULT_TOKEN=your-vault-root-token
 ```
 
-> **Important:** Do NOT set `VAULT_NAMESPACE` at this stage. The setup scripts will automatically switch to the `master-demo` namespace when needed. Setting `VAULT_NAMESPACE=master-demo` here will cause setup and cleanup scripts to fail, as they need to operate from the root namespace for certain operations (creating/deleting namespaces, enabling audit devices, etc.).
+> **Important:** Do NOT set `VAULT_NAMESPACE` at this stage. The setup scripts will automatically switch to the `master-demo` namespace when needed. Setting `VAULT_NAMESPACE=master-demo` here will cause setup and cleanup scripts to fail, as they need to operate from the root namespace for certain operations (creating/deleting namespaces, enabling audit devices, etc.). The audit device is created at path `master-demo-audit/` to avoid conflicts with any existing audit devices.
 
 ### 3. Deploy Everything
 
@@ -417,8 +417,8 @@ vault read master-demo-db/creds/dev-postgres
 - **CLI Access**: Use your root token with `VAULT_NAMESPACE=master-demo`
 - **Operator/Pods**: Use Kubernetes auth (configured automatically)
 
-**Note:** The audit monitoring feature requires a Vault file audit device writing to `~/audit.log`. The setup script (`make master-demo`) will automatically:
-- Enable the audit device
+**Note:** The audit monitoring feature requires a Vault audit device at path `master-demo-audit/` writing to `~/audit.log`. The setup script (`make master-demo`) will automatically:
+- Enable the master-demo audit device (won't interfere with any existing audit devices)
 - Configure automatic log rotation (100MB max, keeps 1 rotated file, 24h rotation)
 - No manual configuration needed - Vault Enterprise handles rotation automatically!
 

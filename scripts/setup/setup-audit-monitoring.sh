@@ -59,14 +59,14 @@ if [ "$VAULT_TOKEN_PROVIDED" = true ]; then
     echo -e "\n${GREEN}Enabling Vault file audit device...${NC}"
 
     # Check if audit device already exists
-    if vault audit list | grep -q "file/"; then
-        echo -e "${YELLOW}File audit device already enabled${NC}"
+    if vault audit list | grep -q "master-demo-audit/"; then
+        echo -e "${YELLOW}Master-demo audit device already enabled${NC}"
     else
-        vault audit enable file file_path="$AUDIT_LOG_PATH" || {
+        vault audit enable -path=master-demo-audit file file_path="$AUDIT_LOG_PATH" || {
             echo -e "${RED}Failed to enable audit device${NC}"
             exit 1
         }
-        echo -e "${GREEN}✓ File audit device enabled at $AUDIT_LOG_PATH${NC}"
+        echo -e "${GREEN}✓ Master-demo audit device enabled at $AUDIT_LOG_PATH${NC}"
     fi
 
     # Ensure audit log file exists

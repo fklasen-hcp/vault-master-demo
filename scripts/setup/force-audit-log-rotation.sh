@@ -58,12 +58,12 @@ ls -lh "$AUDIT_LOG_PATH"* 2>/dev/null || echo "Only audit.log exists"
 echo -e "\n${GREEN}Performing manual rotation...${NC}"
 
 # Step 1: Disable audit device
-echo -e "${YELLOW}1. Disabling audit device...${NC}"
-vault audit disable file/ || {
+echo -e "${YELLOW}1. Disabling master-demo audit device...${NC}"
+vault audit disable master-demo-audit/ || {
     echo -e "${RED}Failed to disable audit device${NC}"
     exit 1
 }
-echo -e "${GREEN}✓ Audit device disabled${NC}"
+echo -e "${GREEN}✓ Master-demo audit device disabled${NC}"
 
 # Step 2: Rotate the log file manually
 echo -e "\n${YELLOW}2. Rotating log file manually...${NC}"
@@ -89,8 +89,8 @@ else
 fi
 
 # Step 3: Re-enable audit device with rotation settings
-echo -e "\n${YELLOW}3. Re-enabling audit device with rotation...${NC}"
-vault audit enable file \
+echo -e "\n${YELLOW}3. Re-enabling master-demo audit device with rotation...${NC}"
+vault audit enable -path=master-demo-audit file \
     file_path="$AUDIT_LOG_PATH" \
     rotate_bytes=104857600 \
     rotate_max_files=1 \

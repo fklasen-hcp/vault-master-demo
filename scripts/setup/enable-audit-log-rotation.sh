@@ -38,28 +38,28 @@ echo -e "${GREEN}✓ Vault is accessible and unsealed${NC}"
 
 AUDIT_LOG_PATH="$HOME/audit.log"
 
-# Check if audit device exists
-echo -e "\n${BLUE}Checking for existing audit device...${NC}"
-if vault audit list | grep -q "file/"; then
-    echo -e "${YELLOW}Disabling existing file audit device...${NC}"
-    vault audit disable file/ || {
+# Check if master-demo audit device exists
+echo -e "\n${BLUE}Checking for existing master-demo audit device...${NC}"
+if vault audit list | grep -q "master-demo-audit/"; then
+    echo -e "${YELLOW}Disabling existing master-demo audit device...${NC}"
+    vault audit disable master-demo-audit/ || {
         echo -e "${RED}Failed to disable audit device${NC}"
         exit 1
     }
-    echo -e "${GREEN}✓ Existing audit device disabled${NC}"
+    echo -e "${GREEN}✓ Existing master-demo audit device disabled${NC}"
 else
-    echo -e "${YELLOW}No existing file audit device found${NC}"
+    echo -e "${YELLOW}No existing master-demo audit device found${NC}"
 fi
 
 # Enable audit device with rotation
-echo -e "\n${GREEN}Enabling audit device with log rotation...${NC}"
+echo -e "\n${GREEN}Enabling master-demo audit device with log rotation...${NC}"
 echo -e "${BLUE}Configuration:${NC}"
 echo -e "  - File path: $AUDIT_LOG_PATH"
 echo -e "  - Rotate at: 100MB"
 echo -e "  - Max files: 1 (keeps current + 1 rotated file)"
 echo -e "  - Rotate duration: 24h"
 
-vault audit enable file \
+vault audit enable -path=master-demo-audit file \
     file_path="$AUDIT_LOG_PATH" \
     rotate_bytes=104857600 \
     rotate_max_files=1 \
