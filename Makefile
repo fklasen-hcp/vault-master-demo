@@ -429,6 +429,7 @@ port-forward-all:
 	@pkill -f "kubectl port-forward.*postgres.*9998" 2>/dev/null || true
 	@pkill -f "kubectl port-forward.*gitlab-demo.*10001" 2>/dev/null || true
 	@pkill -f "kubectl port-forward.*encryption-demo.*10004" 2>/dev/null || true
+	@pkill -f "kubectl port-forward.*controlgroups-demo.*10005" 2>/dev/null || true
 	@pkill -f "kubectl port-forward.*audit-monitoring.*10000" 2>/dev/null || true
 	@pkill -f "kubectl port-forward.*audit-monitoring.*9999" 2>/dev/null || true
 	@sleep 2
@@ -441,6 +442,9 @@ port-forward-all:
 	@sleep 1
 	@echo "Starting Encryption Demo port-forward (http://localhost:10004)..."
 	@kubectl port-forward -n encryption-demo svc/encryption-demo-ui 10004:8080 > /dev/null 2>&1 &
+	@sleep 1
+	@echo "Starting Control Groups Demo port-forward (http://localhost:10005)..."
+	@kubectl port-forward -n controlgroups-demo svc/controlgroups-demo-ui 10005:8080 > /dev/null 2>&1 &
 	@sleep 1
 	@echo "Starting PostgreSQL port-forward (localhost:9998)..."
 	@kubectl port-forward -n postgres svc/postgres-postgresql 9998:5432 > /dev/null 2>&1 &
@@ -477,7 +481,7 @@ port-forward-all:
 	@echo "📊 Dynamic DB UI:    http://localhost:10002"
 	@echo "🔐 PKI Demo:         http://localhost:10003"
 	@echo "🔒 Encryption Demo:  http://localhost:10004"
-	@echo "🐘 PostgreSQL:       localhost:9998"
+	@echo " PostgreSQL:       localhost:9998"
 	@if kubectl get namespace gitlab-demo > /dev/null 2>&1; then \
 		echo ""; \
 		echo "GitLab Credentials:"; \
@@ -501,6 +505,7 @@ stop-port-forwards:
 	@pkill -f "kubectl port-forward.*db-demo" 2>/dev/null || true
 	@pkill -f "kubectl port-forward.*pki-demo" 2>/dev/null || true
 	@pkill -f "kubectl port-forward.*encryption-demo" 2>/dev/null || true
+	@pkill -f "kubectl port-forward.*controlgroups-demo" 2>/dev/null || true
 	@pkill -f "kubectl port-forward.*postgres" 2>/dev/null || true
 	@pkill -f "kubectl port-forward.*gitlab-demo" 2>/dev/null || true
 	@pkill -f "kubectl port-forward.*audit-monitoring" 2>/dev/null || true

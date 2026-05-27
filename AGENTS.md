@@ -78,9 +78,14 @@ master-demo/
    - `<demo>-logs`
    - `<demo>-status`
    - `clean-<demo>`
-5. **Update cleanup script** - Add to `scripts/cleanup/cleanup-all.sh`
-6. **Update README.md** - Add demo documentation and port mapping
-7. **Follow DESIGN_SYSTEM.md** - Ensure UI compliance
+5. **Update `port-forward-all` target** - Add port forward to Makefile's `port-forward-all` target:
+   - Add pkill line to kill existing port-forwards
+   - Add port-forward command with proper port number
+   - Add to the output display section
+   - Add to `stop-port-forwards` target
+6. **Update cleanup script** - Add to `scripts/cleanup/cleanup-all.sh`
+7. **Update README.md** - Add demo documentation and port mapping
+8. **Follow DESIGN_SYSTEM.md** - Ensure UI compliance
 
 ### When Modifying Existing Code:
 
@@ -201,13 +206,14 @@ master-demo/
 ✅ Add cleanup steps  
 
 ### DON'T:
-❌ Skip reading DESIGN_SYSTEM.md  
-❌ Use emojis in UI  
-❌ Make yellow H1/H2 titles  
-❌ Forget Vault logo background  
-❌ Hardcode values (use env vars)  
-❌ Leave orphaned resources  
-❌ Forget to update README.md  
+❌ Skip reading DESIGN_SYSTEM.md
+❌ Use emojis in UI
+❌ Make yellow H1/H2 titles
+❌ Forget Vault logo background
+❌ Hardcode values (use env vars)
+❌ Leave orphaned resources
+❌ Forget to update README.md
+❌ Forget to add new demo to `port-forward-all` target in Makefile
 
 ## 🤝 Working with Users
 
@@ -233,6 +239,7 @@ master-demo/
 
 ## 🔄 Version History
 
+- **v1.1** (2026-05-27): Added reminder to update `port-forward-all` target when adding new demos
 - **v1.0** (2026-05-27): Initial creation with design system standards, project structure, and best practices
 
 ---
