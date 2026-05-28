@@ -9,7 +9,8 @@ Before making any changes, **ALWAYS** review these files:
 1. **DESIGN_SYSTEM.md** - UI/UX standards, colors, typography, component patterns
 2. **README.md** - Project overview, demo descriptions, setup instructions
 3. **Makefile** - Available commands, deployment targets, port mappings
-4. **This file (AGENTS.md)** - Project guidelines and best practices
+4. **CHANGELOG.md** - Project change history (UPDATE THIS when making changes!)
+5. **This file (AGENTS.md)** - Project guidelines and best practices
 
 ## 🎨 Design System Compliance
 
@@ -42,6 +43,7 @@ Before making any changes, **ALWAYS** review these files:
 ```
 master-demo/
 ├── AGENTS.md                    # This file - AI assistant guide
+├── CHANGELOG.md                 # Project change history (UPDATE THIS!)
 ├── DESIGN_SYSTEM.md             # UI/UX standards (READ FIRST for UI work)
 ├── README.md                    # Project documentation
 ├── Makefile                     # All deployment commands
@@ -93,6 +95,7 @@ master-demo/
 2. **Check for similar patterns** - Look at other demos for consistency
 3. **Test changes** - Verify with user before marking complete
 4. **Update documentation** - Keep README.md and comments current
+5. **Update CHANGELOG.md** - Add entry in [Unreleased] section describing the change
 
 ## 📝 Code Standards
 
@@ -187,6 +190,7 @@ master-demo/
 - Use `VAULT_SKIP_VERIFY=true` for TLS
 
 ### Port Mappings:
+**Demos (10000+):**
 - 10001: Dynamic Secrets (PostgreSQL)
 - 10002: PKI Secrets
 - 10003: Encryption Secrets
@@ -194,16 +198,21 @@ master-demo/
 - 10005: Control Groups
 - 10006: GitLab (if deployed)
 
+**Supporting Services (9999 and below):**
+- 8200: Vault Server
+- 5432: PostgreSQL (internal)
+
 ## ⚠️ Important Notes
 
 ### DO:
-✅ Read DESIGN_SYSTEM.md before any UI work  
-✅ Check existing demos for patterns  
-✅ Use multi-file read operations  
-✅ Test changes before completion  
-✅ Update documentation  
-✅ Follow naming conventions  
-✅ Add cleanup steps  
+✅ Read DESIGN_SYSTEM.md before any UI work
+✅ Check existing demos for patterns
+✅ Use multi-file read operations
+✅ Test changes before completion
+✅ Update documentation (README.md, CHANGELOG.md)
+✅ Follow naming conventions
+✅ Add cleanup steps
+✅ **Update CHANGELOG.md for every change made**
 
 ### DON'T:
 ❌ Skip reading DESIGN_SYSTEM.md
@@ -237,11 +246,6 @@ master-demo/
 - **Kubernetes Documentation**: https://kubernetes.io/docs/
 - **hvac Python Library**: https://hvac.readthedocs.io/
 
-## 🔄 Version History
-
-- **v1.1** (2026-05-27): Added reminder to update `port-forward-all` target when adding new demos
-- **v1.0** (2026-05-27): Initial creation with design system standards, project structure, and best practices
-
 ---
 
-**Remember**: This project prioritizes consistency, quality, and user experience. Always review DESIGN_SYSTEM.md before making UI changes, and follow established patterns from existing demos.
+**Remember**: This project prioritizes consistency, quality, and user experience. Always review DESIGN_SYSTEM.md before making UI changes, follow established patterns from existing demos, and update CHANGELOG.md for all changes.
