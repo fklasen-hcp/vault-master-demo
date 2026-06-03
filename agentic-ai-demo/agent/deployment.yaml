@@ -1,4 +1,4 @@
-# AI Agent Service - Core component that handles SPIFFE auth, Vault integration, and LLM calls
+# AI Agent Service - Core component that handles Vault integration and LLM calls
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -88,16 +88,9 @@ spec:
           value: "true"
         - name: OLLAMA_URL
           value: "http://ollama.agentic-demo.svc.cluster.local:11434"
-        - name: SPIRE_SOCKET
-          value: "/run/spire/sockets/agent.sock"
-        - name: JWT_SECRET
-          value: "demo-secret-key-change-in-production"
         volumeMounts:
         - name: app-code
           mountPath: /app
-        - name: spire-agent-socket
-          mountPath: /run/spire/sockets
-          readOnly: true
         livenessProbe:
           httpGet:
             path: /health
@@ -121,9 +114,5 @@ spec:
       - name: app-code
         configMap:
           name: ai-agent-app
-      - name: spire-agent-socket
-        hostPath:
-          path: /run/spire/sockets
-          type: Directory
 
 # Made with Bob

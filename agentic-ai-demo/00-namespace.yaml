@@ -1,6 +1,9 @@
+---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: agentic-demo
+  labels:
+    name: agentic-demo
 
 # Made with Bob

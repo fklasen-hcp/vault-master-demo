@@ -54,63 +54,7 @@ echo -e "${GREEN}✓ Vault is accessible${NC}"
 export VAULT_NAMESPACE=master-demo
 echo -e "${BLUE}Using Vault namespace: ${VAULT_NAMESPACE}${NC}"
 
-echo -e "\n${BLUE}Step 1: Setting up SPIFFE authentication (optional)${NC}"
-# Check if SPIRE is deployed
-if kubectl get namespace agentic-demo >/dev/null 2>&1 && kubectl get pods -n agentic-demo -l app=spire-server >/dev/null 2>&1; then
-    echo -e "${YELLOW}SPIRE detected, configuring SPIFFE auth...${NC}"
-    
-    # Check if SPIFFE auth is enabled
-    if ! vault auth list 2>&1 | grep -q "master-demo-spiffe/"; then
-        echo -e "${YELLOW}Enabling SPIFFE auth method at master-demo-spiffe...${NC}"
-        
-        # Enable SPIFFE auth
-        if vault auth enable -path master-demo-spiffe cert 2>&1; then
-            echo -e "${GREEN}✓ SPIFFE auth method enabled${NC}"
-            sleep 2
-        else
-            echo -e "${RED}ERROR: Failed to enable SPIFFE auth method${NC}"
-            exit 1
-        fi
-        
-        # Get SPIRE server bundle (CA certificate)
-        echo -e "${YELLOW}Waiting for SPIRE server to be ready...${NC}"
-        kubectl wait --for=condition=ready pod -l app=spire-server -n agentic-demo --timeout=120s || {
-            echo -e "${YELLOW}WARNING: SPIRE server not ready, skipping SPIFFE auth configuration${NC}"
-            echo -e "${YELLOW}You can run this script again after SPIRE is deployed${NC}"
-        }
-        
-        # Extract SPIRE server CA bundle
-        if kubectl get pods -n agentic-demo -l app=spire-server -o jsonpath='{.items[0].status.phase}' 2>/dev/null | grep -q "Running"; then
-            echo -e "${YELLOW}Extracting SPIRE server CA bundle...${NC}"
-            SPIRE_CA=$(kubectl exec -n agentic-demo spire-server-0 -- \
-                /opt/spire/bin/spire-server bundle show -format pem 2>/dev/null)
-            
-            if [ -n "$SPIRE_CA" ]; then
-                # Configure SPIFFE auth with SPIRE CA
-                echo -e "${YELLOW}Configuring SPIFFE authentication...${NC}"
-                vault write auth/master-demo-spiffe/certs/spire-agent \
-                    display_name="spire-agent" \
-                    policies="master-demo-agentic-base" \
-                    certificate="$SPIRE_CA" \
-                    allowed_common_names="agent.master-demo.local" \
-                    ttl=5m \
-                    max_ttl=15m || {
-                    echo -e "${YELLOW}WARNING: Failed to configure SPIFFE auth${NC}"
-                }
-                echo -e "${GREEN}✓ SPIFFE auth configured${NC}"
-            else
-                echo -e "${YELLOW}WARNING: Could not get SPIRE CA bundle, skipping SPIFFE auth configuration${NC}"
-            fi
-        fi
-    else
-        echo -e "${GREEN}✓ SPIFFE auth already enabled at master-demo-spiffe/${NC}"
-    fi
-else
-    echo -e "${YELLOW}SPIRE not deployed yet, skipping SPIFFE auth configuration${NC}"
-    echo -e "${YELLOW}SPIFFE auth will be configured when you run this script after deploying SPIRE${NC}"
-fi
-
-echo -e "\n${BLUE}Step 1b: Setting up Kubernetes authentication for UI${NC}"
+echo -e "\n${BLUE}Step 1: Setting up Kubernetes authentication${NC}"
 # Check if Kubernetes auth is enabled
 if ! vault auth list 2>&1 | grep -q "master-demo-auth/"; then
     echo -e "${YELLOW}Enabling Kubernetes auth method at master-demo-auth...${NC}"
@@ -211,7 +155,6 @@ EOF
 echo -e "${GREEN}✓ Bob policy created${NC}"
 
 echo -e "\n${BLUE}Step 5: Creating Kubernetes auth role for agent base access${NC}"
-echo -e "${YELLOW}Note: Agent uses K8s auth for base access (JWT key), SPIFFE for user auth${NC}"
 
 # Create Kubernetes auth role for the AI agent base access (to fetch JWT key)
 vault write auth/master-demo-auth/role/ai-agent-base \
@@ -229,11 +172,7 @@ echo "  Namespace: agentic-demo"
 echo "  Policies: master-demo-agentic-base"
 echo "  TTL: 24h / Max TTL: 24h"
 
-echo -e "\n${GREEN}✓ SPIFFE auth configured in Step 1 for user authentication${NC}"
-echo "  SPIFFE ID: spiffe://master-demo.local/ns/agentic-demo/sa/ai-agent"
-echo "  User policies attached via JWT entity aliases"
-
-echo -e "\n${BLUE}Step 6: Enabling JWT auth method for entity-based authorization${NC}"
+echo -e "\n${BLUE}Step 6: Enabling JWT auth method for user-based authorization${NC}"
 # Enable JWT auth if not already enabled
 if ! vault auth list 2>&1 | grep -q "master-demo-jwt/"; then
     echo -e "${YELLOW}Enabling JWT auth method at master-demo-jwt...${NC}"
@@ -524,16 +463,15 @@ kubectl exec -n postgres postgres-postgresql-0 -- env PGPASSWORD=secret-pass psq
 echo -e "${GREEN}✓ PostgreSQL configured to log all SQL statements${NC}"
 
 echo -e "\n${GREEN}=== Vault Configuration Complete ===${NC}"
-echo -e "${GREEN}✓ SPIFFE auth method enabled and configured${NC}"
+echo -e "${GREEN}✓ Kubernetes auth configured for UI and Agent${NC}"
+echo -e "${GREEN}✓ JWT auth configured for user-based authorization${NC}"
 echo -e "${GREEN}✓ Policies created (base, alice, bob)${NC}"
-echo -e "${GREEN}✓ SPIFFE auth role created for AI agent${NC}"
 echo -e "${GREEN}✓ Database roles created (readonly, admin)${NC}"
 echo -e "${GREEN}✓ Products table ready${NC}"
 echo -e ""
 echo -e "${YELLOW}Next steps:${NC}"
-echo -e "  1. Deploy SPIRE: kubectl apply -f agentic-ai-demo/spire/"
-echo -e "  2. Deploy Ollama: kubectl apply -f agentic-ai-demo/ollama/"
-echo -e "  3. Deploy AI Agent: kubectl apply -f agentic-ai-demo/agent/"
-echo -e "  4. Deploy Web UI: kubectl apply -f agentic-ai-demo/"
+echo -e "  1. Deploy Ollama: kubectl apply -f agentic-ai-demo/ollama/"
+echo -e "  2. Deploy AI Agent: kubectl apply -f agentic-ai-demo/agent/"
+echo -e "  3. Deploy Web UI: kubectl apply -f agentic-ai-demo/ui/"
 
 # Made with Bob

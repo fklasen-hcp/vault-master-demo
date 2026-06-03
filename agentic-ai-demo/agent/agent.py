@@ -1,11 +1,10 @@
 """
 AI Agent Service - Core component that:
 1. Receives user JWT from web UI
-2. Gets SPIFFE SVID from SPIRE agent
-3. Authenticates to Vault with SPIFFE + user context
-4. Gets user-scoped database credentials
-5. Calls Ollama LLM for natural language processing
-6. Executes database operations with proper authorization
+2. Authenticates to Vault with Kubernetes ServiceAccount
+3. Gets user-scoped database credentials via JWT auth
+4. Calls Ollama LLM for natural language processing
+5. Executes database operations with proper authorization
 """
 
 import os
@@ -42,71 +41,53 @@ VAULT_ADDR = os.getenv("VAULT_ADDR", "https://host.minikube.internal:8200")
 VAULT_NAMESPACE = os.getenv("VAULT_NAMESPACE", "master-demo")
 VAULT_SKIP_VERIFY = os.getenv("VAULT_SKIP_VERIFY", "true").lower() == "true"
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama.agentic-demo.svc.cluster.local:11434")
-SPIRE_SOCKET = os.getenv("SPIRE_SOCKET", "/run/spire/sockets/agent.sock")
-JWT_SECRET = os.getenv("JWT_SECRET", "demo-secret-key-change-in-production")
 
 # Fetch JWT public key from Vault for token validation
 JWT_PUBLIC_KEY = None
 
 def fetch_jwt_public_key():
-    """Fetch RSA public key from Vault for JWT validation using SPIFFE auth"""
+    """Fetch RSA public key from Vault for JWT validation using Kubernetes auth"""
     global JWT_PUBLIC_KEY
     try:
-        # Agent authenticates with SPIFFE cert auth to get base token
-        # Get SPIFFE SVID from SPIRE agent
-        spiffe_id = get_spiffe_svid()
-        logger.info(f"Got SPIFFE ID: {spiffe_id}")
-        
-        # For now, use a simplified approach - in production, use actual SPIFFE Workload API
-        # to get X.509 SVID and use it for mTLS authentication to Vault
-        # This is a placeholder that will work once SPIRE is properly integrated
-        
-        # Authenticate to Vault using SPIFFE cert auth
+        # Agent authenticates with Kubernetes ServiceAccount token
         headers = {"X-Vault-Namespace": VAULT_NAMESPACE}
         
-        # In production, this would use the X.509 SVID from SPIRE for mTLS
-        # For now, we'll use a token-based approach as a fallback
-        # The SPIRE integration requires proper certificate handling
+        # Read Kubernetes ServiceAccount token
+        with open("/var/run/secrets/kubernetes.io/serviceaccount/token", "r") as f:
+            k8s_token = f.read()
         
-        # Fallback: Try to get a token using Kubernetes auth for the agent's base access
-        try:
-            with open("/var/run/secrets/kubernetes.io/serviceaccount/token", "r") as f:
-                k8s_token = f.read()
+        # Authenticate to Vault using Kubernetes auth
+        auth_data = {"role": "ai-agent-base", "jwt": k8s_token}
+        
+        response = httpx.post(
+            f"{VAULT_ADDR}/v1/auth/master-demo-auth/login",
+            json=auth_data,
+            headers=headers,
+            verify=not VAULT_SKIP_VERIFY
+        )
+        
+        if response.status_code == 200:
+            vault_token = response.json()["auth"]["client_token"]
             
-            # Create a Kubernetes auth role for agent base access
-            auth_data = {"role": "ai-agent-base", "jwt": k8s_token}
-            
-            response = httpx.post(
-                f"{VAULT_ADDR}/v1/auth/master-demo-auth/login",
-                json=auth_data,
+            # Fetch public key from Vault KV
+            headers["X-Vault-Token"] = vault_token
+            response = httpx.get(
+                f"{VAULT_ADDR}/v1/master-demo-kv/data/agentic/jwt-key",
                 headers=headers,
                 verify=not VAULT_SKIP_VERIFY
             )
             
             if response.status_code == 200:
-                vault_token = response.json()["auth"]["client_token"]
-                
-                # Fetch public key from Vault KV
-                headers["X-Vault-Token"] = vault_token
-                response = httpx.get(
-                    f"{VAULT_ADDR}/v1/master-demo-kv/data/agentic/jwt-key",
-                    headers=headers,
-                    verify=not VAULT_SKIP_VERIFY
-                )
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    JWT_PUBLIC_KEY = data['data']['data']['public_key']
-                    logger.info("Successfully fetched JWT public key from Vault")
-                else:
-                    logger.warning(f"Failed to fetch JWT public key (status {response.status_code}): {response.text}")
+                data = response.json()
+                JWT_PUBLIC_KEY = data['data']['data']['public_key']
+                logger.info("Successfully fetched JWT public key from Vault using Kubernetes auth")
             else:
-                logger.warning(f"Failed to authenticate to Vault for JWT key (status {response.status_code}): {response.text}")
-        except Exception as fallback_error:
-            logger.warning(f"Fallback auth failed: {fallback_error}")
+                logger.error(f"Failed to fetch JWT public key (status {response.status_code}): {response.text}")
+        else:
+            logger.error(f"Failed to authenticate to Vault (status {response.status_code}): {response.text}")
             
     except Exception as e:
-        logger.warning(f"Failed to fetch JWT public key: {e}, will use HMAC fallback")
+        logger.error(f"Failed to fetch JWT public key: {e}")
 
 # Request/Response models
 class ChatRequest(BaseModel):
@@ -172,21 +153,7 @@ def validate_user_token(token: str) -> Dict[str, Any]:
         logger.error(f"Invalid token: {e}")
         raise HTTPException(status_code=401, detail="Invalid token")
 
-def get_spiffe_svid() -> str:
-    """Get SPIFFE SVID from SPIRE agent via Unix socket"""
-    # In production, this would use the SPIFFE Workload API
-    # For now, we'll use a placeholder that works with Vault's SPIFFE auth
-    try:
-        # This is a simplified version - real implementation would use go-spiffe library
-        # or the SPIFFE Workload API via gRPC
-        logger.info("Getting SPIFFE SVID from SPIRE agent")
-        # Return a mock SVID for now - will be replaced with actual SPIFFE integration
-        return "spiffe://master-demo.local/ns/agentic-demo/sa/ai-agent"
-    except Exception as e:
-        logger.error(f"Failed to get SPIFFE SVID: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get SPIFFE identity")
-
-def authenticate_to_vault(spiffe_id: str, user_jwt: str, user_id: str, user_groups: list) -> str:
+def authenticate_to_vault(user_jwt: str, user_id: str, user_groups: list) -> str:
     """
     Authenticate user to Vault using JWT auth method.
     This creates an entity token with user-specific policies attached.
@@ -413,12 +380,9 @@ async def chat(request: ChatRequest):
         if llm_action["action"] in ["list_products", "add_product"]:
             logger.info(f"LLM determined database operation needed: {llm_action['action']}")
             
-            # Get SPIFFE SVID (for future SPIFFE auth integration)
-            spiffe_id = get_spiffe_svid()
-            
             # Authenticate user to Vault using JWT auth
             # This creates an entity token with user-specific policies (alice or bob)
-            vault_token = authenticate_to_vault(spiffe_id, request.user_token, user_id, user_groups)
+            vault_token = authenticate_to_vault(request.user_token, user_id, user_groups)
             
             # Get database credentials (just-in-time, least-privilege)
             # Vault enforces which role based on entity policies:

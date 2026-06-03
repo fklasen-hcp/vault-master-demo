@@ -884,11 +884,9 @@ build-agentic-agent:
 .PHONY: deploy-agentic-demo
 deploy-agentic-demo: build-agentic-agent
 	$(call header,$@)
+	@echo "Creating agentic-demo namespace..."
+	@kubectl apply -f agentic-ai-demo/00-namespace.yaml
 	@echo "Deploying Agentic AI demo components..."
-	@kubectl apply -f agentic-ai-demo/spire/
-	@echo "Waiting for SPIRE server to be ready..."
-	@kubectl wait --for=condition=ready pod -l app=spire-server -n agentic-demo --timeout=120s || true
-	@sleep 10
 	@kubectl apply -f agentic-ai-demo/ollama/
 	@echo "Waiting for Ollama to be ready (this may take a few minutes to pull the image)..."
 	@kubectl wait --for=condition=ready pod -l app=ollama -n agentic-demo --timeout=600s || true
