@@ -1,5 +1,23 @@
 # Main target for complete master-demo setup
-master-demo: start-minikube setup-local-vault install-vso-local install-postgresql-pod setup-postgresql-local deploy-db-ui setup-pki-vault deploy-pki-secrets setup-encryption-vault deploy-encryption-demo setup-controlgroups-vault deploy-controlgroups-demo setup-gitlab-demo setup-audit-monitoring enable-audit-log-rotation rotate-audit-log-if-needed setup-auto-audit-rotation port-forward-all
+master-demo: start-minikube setup-local-vault install-vso-local install-postgresql-pod setup-postgresql-local deploy-db-ui setup-pki-vault deploy-pki-secrets setup-encryption-vault deploy-encryption-demo setup-controlgroups-vault deploy-controlgroups-demo setup-gitlab-demo setup-audit-monitoring enable-audit-log-rotation rotate-audit-log-if-needed setup-auto-audit-rotation
+	@echo ""
+	@echo "=== Checking resources for Agentic AI demo ==="
+	@if ./scripts/setup/check-resources.sh agentic 2>/dev/null; then \
+		echo "✓ Sufficient resources, deploying Agentic AI demo..."; \
+		$(MAKE) agentic-demo; \
+	else \
+		echo ""; \
+		echo "⚠️  Skipping Agentic AI demo due to insufficient resources"; \
+		echo ""; \
+		echo "To deploy Agentic AI demo:"; \
+		echo "  Option 1: Increase Minikube resources"; \
+		echo "    minikube delete && minikube start --cpus=8 --memory=16384"; \
+		echo "    make master-demo"; \
+		echo ""; \
+		echo "  Option 2: Deploy only Agentic AI (skips other demos)"; \
+		echo "    make agentic-demo-only"; \
+	fi
+	@$(MAKE) port-forward-all
 
 # Legacy alias for backward compatibility
 .PHONY: all-local
@@ -430,6 +448,7 @@ port-forward-all:
 	@pkill -f "kubectl port-forward.*gitlab-demo.*10001" 2>/dev/null || true
 	@pkill -f "kubectl port-forward.*encryption-demo.*10004" 2>/dev/null || true
 	@pkill -f "kubectl port-forward.*controlgroups-demo.*10005" 2>/dev/null || true
+	@pkill -f "kubectl port-forward.*agentic-demo.*10006" 2>/dev/null || true
 	@pkill -f "kubectl port-forward.*audit-monitoring.*10000" 2>/dev/null || true
 	@pkill -f "kubectl port-forward.*audit-monitoring.*9999" 2>/dev/null || true
 	@sleep 2
@@ -446,6 +465,12 @@ port-forward-all:
 	@echo "Starting Control Groups Demo port-forward (http://localhost:10005)..."
 	@kubectl port-forward -n controlgroups-demo svc/controlgroups-demo-ui 10005:8080 > /dev/null 2>&1 &
 	@sleep 1
+	@# Check if Agentic AI demo is deployed and start port-forward if it exists
+	@if kubectl get namespace agentic-demo > /dev/null 2>&1; then \
+		echo "Starting Agentic AI Demo port-forward (http://localhost:10006)..."; \
+		(kubectl port-forward -n agentic-demo svc/agentic-demo-ui 10006:8002 > /dev/null 2>&1) & \
+		sleep 1; \
+	fi
 	@echo "Starting PostgreSQL port-forward (localhost:9998)..."
 	@kubectl port-forward -n postgres svc/postgres-postgresql 9998:5432 > /dev/null 2>&1 &
 	@sleep 1
@@ -481,6 +506,10 @@ port-forward-all:
 	@echo "📊 Dynamic DB UI:    http://localhost:10002"
 	@echo "🔐 PKI Demo:         http://localhost:10003"
 	@echo "🔒 Encryption Demo:  http://localhost:10004"
+	@echo "🔐 Control Groups:   http://localhost:10005"
+	@if kubectl get namespace agentic-demo > /dev/null 2>&1; then \
+		echo "🤖 Agentic AI Demo:  http://localhost:10006"; \
+	fi
 	@echo " PostgreSQL:       localhost:9998"
 	@if kubectl get namespace gitlab-demo > /dev/null 2>&1; then \
 		echo ""; \
@@ -506,6 +535,7 @@ stop-port-forwards:
 	@pkill -f "kubectl port-forward.*pki-demo" 2>/dev/null || true
 	@pkill -f "kubectl port-forward.*encryption-demo" 2>/dev/null || true
 	@pkill -f "kubectl port-forward.*controlgroups-demo" 2>/dev/null || true
+	@pkill -f "kubectl port-forward.*agentic-demo" 2>/dev/null || true
 	@pkill -f "kubectl port-forward.*postgres" 2>/dev/null || true
 	@pkill -f "kubectl port-forward.*gitlab-demo" 2>/dev/null || true
 	@pkill -f "kubectl port-forward.*audit-monitoring" 2>/dev/null || true
@@ -825,3 +855,220 @@ all-audit-monitoring: setup-audit-monitoring
 	@echo ""
 	@echo "Grafana dashboard will be available at http://localhost:3000"
 	@echo "Default credentials: admin/admin"
+
+
+# ============================================
+# Agentic AI Demo
+# ============================================
+
+.PHONY: check-agentic-resources
+check-agentic-resources:
+	$(call header,$@)
+	@chmod +x scripts/setup/check-resources.sh
+	@./scripts/setup/check-resources.sh agentic
+
+.PHONY: setup-agentic-vault
+setup-agentic-vault:
+	$(call header,$@)
+	@chmod +x scripts/setup/setup-agentic-vault.sh
+	@./scripts/setup/setup-agentic-vault.sh
+
+.PHONY: build-agentic-agent
+build-agentic-agent:
+	$(call header,$@)
+	@echo "Building AI agent Docker image..."
+	@eval $$(minikube docker-env) && \
+		docker build --no-cache -t ai-agent:latest agentic-ai-demo/agent/
+	@echo "✓ AI agent image built"
+
+.PHONY: deploy-agentic-demo
+deploy-agentic-demo: build-agentic-agent
+	$(call header,$@)
+	@echo "Deploying Agentic AI demo components..."
+	@kubectl apply -f agentic-ai-demo/spire/
+	@echo "Waiting for SPIRE server to be ready..."
+	@kubectl wait --for=condition=ready pod -l app=spire-server -n agentic-demo --timeout=120s || true
+	@sleep 10
+	@kubectl apply -f agentic-ai-demo/ollama/
+	@echo "Waiting for Ollama to be ready (this may take a few minutes to pull the image)..."
+	@kubectl wait --for=condition=ready pod -l app=ollama -n agentic-demo --timeout=600s || true
+	@echo "Downloading Ollama model (llama3.2:1b)..."
+	@kubectl exec -n agentic-demo deployment/ollama -- ollama pull llama3.2:1b || echo "Model download failed, will retry on first use"
+	@echo "Creating ConfigMap for AI agent from agent.py..."
+	@kubectl create configmap ai-agent-app --from-file=agent.py=agentic-ai-demo/agent/agent.py -n agentic-demo --dry-run=client -o yaml | kubectl apply -f -
+	@echo "Deploying AI agent..."
+	@kubectl apply -f agentic-ai-demo/agent/
+	@echo "Waiting for AI agent to be ready..."
+	@kubectl wait --for=condition=ready pod -l app=ai-agent -n agentic-demo --timeout=120s || true
+	@echo "Creating ConfigMap for UI from app.py..."
+	@kubectl create configmap agentic-ui-app --from-file=app.py=agentic-ai-demo/ui/app.py -n agentic-demo --dry-run=client -o yaml | kubectl apply -f -
+	@echo "Deploying UI..."
+	@kubectl apply -f agentic-ai-demo/ui/deployment.yaml
+	@echo "Waiting for UI to be ready..."
+	@kubectl wait --for=condition=ready pod -l app=agentic-demo-ui -n agentic-demo --timeout=120s || true
+	@echo "✓ Agentic AI demo deployed"
+
+.PHONY: ensure-vault-and-postgresql
+ensure-vault-and-postgresql:
+	@echo "Checking Vault deployment..."
+	@if ! vault status > /dev/null 2>&1; then \
+		echo "Vault not running. Setting up local Vault..."; \
+		$(MAKE) setup-local-vault; \
+		$(MAKE) install-vso-local; \
+	else \
+		echo "✓ Vault is running"; \
+	fi
+	@echo "Checking PostgreSQL deployment..."
+	@if ! kubectl get namespace postgres > /dev/null 2>&1; then \
+		echo "PostgreSQL not found. Deploying..."; \
+		$(MAKE) install-postgresql-pod; \
+		echo "Waiting for PostgreSQL to fully initialize..."; \
+		kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=postgresql -n postgres --timeout=120s; \
+		echo "Waiting additional 30 seconds for PostgreSQL to accept connections..."; \
+		sleep 30; \
+		$(MAKE) setup-postgresql-local; \
+	else \
+		echo "✓ PostgreSQL already deployed"; \
+		echo "Verifying PostgreSQL is ready..."; \
+		kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=postgresql -n postgres --timeout=60s || true; \
+	fi
+
+.PHONY: agentic-demo
+agentic-demo: check-agentic-resources ensure-vault-and-postgresql setup-agentic-vault deploy-agentic-demo
+	$(call header,$@)
+	@echo ""
+	@echo "Reconfiguring Vault with final JWT keys..."
+	@$(MAKE) setup-agentic-vault
+	@echo "Restarting UI and agent to pick up JWT keys..."
+	@kubectl delete pod -n agentic-demo -l app=agentic-demo-ui --ignore-not-found=true
+	@kubectl delete pod -n agentic-demo -l app=ai-agent --ignore-not-found=true
+	@sleep 5
+	@kubectl wait --for=condition=ready pod -l app=agentic-demo-ui -n agentic-demo --timeout=120s || true
+	@kubectl wait --for=condition=ready pod -l app=ai-agent -n agentic-demo --timeout=120s || true
+	@echo ""
+	@echo "=== Agentic AI Demo Deployed! ==="
+	@echo ""
+	@echo "Components:"
+	@echo "  ✓ PostgreSQL (dynamic credentials)"
+	@echo "  ✓ SPIRE Server & Agent (SPIFFE identities)"
+	@echo "  ✓ Ollama (Llama 3.2 1B LLM)"
+	@echo "  ✓ AI Agent Service"
+	@echo "  ✓ Vault SPIFFE auth configured"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Check status: make agentic-status"
+	@echo "  2. View logs: make agentic-logs"
+	@echo "  3. Deploy Web UI: (coming in Phase 3)"
+
+.PHONY: agentic-demo-only
+agentic-demo-only: check-agentic-resources ensure-vault-and-postgresql setup-agentic-vault deploy-agentic-demo enable-audit-log-rotation rotate-audit-log-if-needed setup-auto-audit-rotation
+	$(call header,$@)
+	@echo ""
+	@echo "Reconfiguring Vault with final JWT keys..."
+	@$(MAKE) setup-agentic-vault
+	@echo "Restarting UI and agent to pick up JWT keys..."
+	@kubectl delete pod -n agentic-demo -l app=agentic-demo-ui --ignore-not-found=true
+	@kubectl delete pod -n agentic-demo -l app=ai-agent --ignore-not-found=true
+	@sleep 5
+	@kubectl wait --for=condition=ready pod -l app=agentic-demo-ui -n agentic-demo --timeout=120s || true
+	@kubectl wait --for=condition=ready pod -l app=ai-agent -n agentic-demo --timeout=120s || true
+	@echo ""
+	@echo "=== Agentic AI Demo Deployed (Standalone Mode) ===${NC}"
+	@echo ""
+	@echo "This deployment includes only:"
+	@echo "  ✓ PostgreSQL"
+	@echo "  ✓ Agentic AI components"
+	@echo ""
+	@echo "Other demos were skipped to conserve resources."
+
+.PHONY: agentic-status
+agentic-status:
+	$(call header,$@)
+	@echo "=== Agentic AI Demo Status ==="
+	@echo ""
+	@echo "Namespace:"
+	@kubectl get namespace agentic-demo 2>/dev/null || echo "  Namespace not found"
+	@echo ""
+	@echo "SPIRE Server:"
+	@kubectl get pods -n agentic-demo -l app=spire-server
+	@echo ""
+	@echo "SPIRE Agent:"
+	@kubectl get pods -n agentic-demo -l app=spire-agent
+	@echo ""
+	@echo "Ollama:"
+	@kubectl get pods -n agentic-demo -l app=ollama
+	@echo ""
+	@echo "AI Agent:"
+	@kubectl get pods -n agentic-demo -l app=ai-agent
+	@echo ""
+	@echo "Services:"
+	@kubectl get svc -n agentic-demo
+
+.PHONY: agentic-logs
+agentic-logs:
+	$(call header,$@)
+	@echo "Streaming logs from AI Agent..."
+	@echo "Press Ctrl+C to stop"
+	@echo ""
+	@kubectl logs -n agentic-demo -l app=ai-agent -f --tail=50
+
+.PHONY: ollama-logs
+ollama-logs:
+	$(call header,$@)
+	@echo "Streaming logs from Ollama..."
+	@echo "Press Ctrl+C to stop"
+	@echo ""
+	@kubectl logs -n agentic-demo -l app=ollama -f --tail=50
+
+.PHONY: spire-server-logs
+spire-server-logs:
+	$(call header,$@)
+	@echo "Streaming logs from SPIRE Server..."
+	@echo "Press Ctrl+C to stop"
+	@echo ""
+	@kubectl logs -n agentic-demo -l app=spire-server -f --tail=50
+
+.PHONY: build-agentic-ui
+build-agentic-ui:
+	$(call header,$@)
+	@echo "Building Agentic AI UI Docker image..."
+	@cd agentic-ai-demo/ui && eval $$(minikube docker-env) && docker build -t agentic-demo-ui:latest .
+	@echo "✓ Agentic AI UI image built"
+
+.PHONY: deploy-agentic-ui
+deploy-agentic-ui:
+	$(call header,$@)
+	@echo "Creating ConfigMap from app.py..."
+	@kubectl create configmap agentic-ui-app \
+		--from-file=app.py=agentic-ai-demo/ui/app.py \
+		-n agentic-demo \
+		--dry-run=client -o yaml | kubectl apply -f -
+	@echo "Deploying Agentic AI UI..."
+	@kubectl apply -f agentic-ai-demo/ui/deployment.yaml
+	@echo "Waiting for UI to be ready..."
+	@kubectl wait --for=condition=ready pod -l app=agentic-demo-ui -n agentic-demo --timeout=120s
+	@echo "✓ Agentic AI UI deployed"
+
+.PHONY: test-agentic-agent
+test-agentic-agent:
+	$(call header,$@)
+	@echo "Testing Agentic AI Agent..."
+	@echo "Note: Requires port-forward to be running (make agentic-port-forward)"
+	@chmod +x scripts/test/test-agentic-agent.sh
+	@./scripts/test/test-agentic-agent.sh
+
+.PHONY: agentic-port-forward
+agentic-port-forward:
+	$(call header,$@)
+	@echo "Port-forwarding Agentic AI Demo UI..."
+	@echo "Access at: http://localhost:10006"
+	@echo "Press Ctrl+C to stop"
+	@echo ""
+	@kubectl port-forward -n agentic-demo svc/agentic-demo-ui 10006:8002
+
+.PHONY: clean-agentic
+clean-agentic:
+	$(call header,$@)
+	@echo "Cleaning up Agentic AI demo..."
+	@kubectl delete namespace agentic-demo --ignore-not-found=true
+	@echo "✓ Agentic AI demo cleaned up"

@@ -72,11 +72,12 @@ if vault namespace list 2>/dev/null | grep -q "master-demo/"; then
     # Disable auth methods
     echo -e "${YELLOW}Disabling auth methods in master-demo namespace...${NC}"
     vault auth disable master-demo-auth 2>/dev/null && echo "✓ Kubernetes auth disabled" || echo "  Kubernetes auth not found"
+    vault auth disable master-demo-spiffe 2>/dev/null && echo "✓ SPIFFE auth disabled" || echo "  SPIFFE auth not found"
     vault auth disable userpass 2>/dev/null && echo "✓ Userpass auth disabled" || echo "  Userpass auth not found"
     
     # Delete all policies
     echo -e "${YELLOW}Deleting policies in master-demo namespace...${NC}"
-    for policy in master-demo-webapp master-demo-auth-policy-db master-demo-pki-issuer master-demo-auth-policy-operator master-demo-admin master-demo-gitlab-policy master-demo-controlgroups-user master-demo-controlgroups-ops master-demo-controlgroups-security; do
+    for policy in master-demo-webapp master-demo-auth-policy-db master-demo-pki-issuer master-demo-auth-policy-operator master-demo-admin master-demo-gitlab-policy master-demo-controlgroups-user master-demo-controlgroups-ops master-demo-controlgroups-security master-demo-agentic-base master-demo-agentic-alice master-demo-agentic-bob; do
         vault policy delete "$policy" 2>/dev/null && echo "✓ Policy $policy deleted" || true
     done
     
@@ -139,6 +140,7 @@ if minikube status | grep -q "host: Running"; then
     kubectl delete vaultstaticsecret --all -n gitlab-demo --ignore-not-found=true 2>/dev/null || true
     kubectl delete vaultstaticsecret --all -n encryption-demo --ignore-not-found=true 2>/dev/null || true
     kubectl delete vaultpkisecret --all -n pki-demo --ignore-not-found=true 2>/dev/null || true
+    kubectl delete vaultdynamicsecret --all -n agentic-demo --ignore-not-found=true 2>/dev/null || true
 
     echo -e "${YELLOW}Deleting demo namespaces...${NC}"
     kubectl delete namespace db-demo --ignore-not-found=true 2>/dev/null && echo "✓ db-demo namespace deleted" || echo "  db-demo namespace not found"
@@ -146,6 +148,7 @@ if minikube status | grep -q "host: Running"; then
     kubectl delete namespace gitlab-demo --ignore-not-found=true 2>/dev/null && echo "✓ gitlab-demo namespace deleted" || echo "  gitlab-demo namespace not found"
     kubectl delete namespace encryption-demo --ignore-not-found=true 2>/dev/null && echo "✓ encryption-demo namespace deleted" || echo "  encryption-demo namespace not found"
     kubectl delete namespace controlgroups-demo --ignore-not-found=true 2>/dev/null && echo "✓ controlgroups-demo namespace deleted" || echo "  controlgroups-demo namespace not found"
+    kubectl delete namespace agentic-demo --ignore-not-found=true 2>/dev/null && echo "✓ agentic-demo namespace deleted" || echo "  agentic-demo namespace not found"
     kubectl delete namespace audit-monitoring --ignore-not-found=true 2>/dev/null && echo "✓ audit-monitoring namespace deleted" || echo "  audit-monitoring namespace not found"
     kubectl delete namespace postgres --ignore-not-found=true 2>/dev/null && echo "✓ postgres namespace deleted" || echo "  postgres namespace not found"
     kubectl delete namespace vault-secrets-operator-system --ignore-not-found=true 2>/dev/null && echo "✓ vault-secrets-operator-system namespace deleted" || echo "  vault-secrets-operator-system namespace not found"
@@ -155,7 +158,7 @@ if minikube status | grep -q "host: Running"; then
     
     # Force delete any stuck namespaces (common with operator namespaces)
     echo -e "${YELLOW}Checking for stuck namespaces...${NC}"
-    for ns in vault-secrets-operator-system db-demo pki-demo gitlab-demo encryption-demo controlgroups-demo audit-monitoring postgres; do
+    for ns in vault-secrets-operator-system db-demo pki-demo gitlab-demo encryption-demo controlgroups-demo agentic-demo audit-monitoring postgres; do
         if kubectl get namespace $ns 2>/dev/null | grep -q "Terminating"; then
             echo -e "${YELLOW}Force deleting stuck namespace: $ns${NC}"
             kubectl get namespace $ns -o json | jq '.spec.finalizers = []' | kubectl replace --raw /api/v1/namespaces/$ns/finalize -f - 2>/dev/null && echo "✓ $ns force deleted" || echo "  $ns already gone"
@@ -165,6 +168,7 @@ if minikube status | grep -q "host: Running"; then
     # Clean up cluster-level resources
     echo -e "${YELLOW}Cleaning cluster-level resources...${NC}"
     kubectl delete clusterrolebinding vault-auth-reviewer-binding --ignore-not-found=true 2>/dev/null && echo "✓ ClusterRoleBinding deleted" || echo "  ClusterRoleBinding not found"
+    kubectl delete clusterrole vault-auth-reviewer --ignore-not-found=true 2>/dev/null && echo "✓ ClusterRole deleted" || echo "  ClusterRole not found"
     
     echo -e "${GREEN}✓ All demo namespaces and resources cleaned${NC}"
 else

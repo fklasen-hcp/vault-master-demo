@@ -1,0 +1,129 @@
+# AI Agent Service - Core component that handles SPIFFE auth, Vault integration, and LLM calls
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ai-agent
+  namespace: agentic-demo
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ai-agent-role
+  namespace: agentic-demo
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ai-agent-rolebinding
+  namespace: agentic-demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ai-agent-role
+subjects:
+- kind: ServiceAccount
+  name: ai-agent
+  namespace: agentic-demo
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-agent
+  namespace: agentic-demo
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8001
+    targetPort: 8001
+    protocol: TCP
+    name: http
+  selector:
+    app: ai-agent
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-agent
+  namespace: agentic-demo
+  labels:
+    app: ai-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-agent
+  template:
+    metadata:
+      labels:
+        app: ai-agent
+    spec:
+      serviceAccountName: ai-agent
+      containers:
+      - name: ai-agent
+        image: python:3.11-slim
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            pip install --no-cache-dir fastapi uvicorn httpx pyjwt cryptography psycopg2-binary
+            cd /app
+            python agent.py
+        ports:
+        - containerPort: 8001
+          name: http
+        env:
+        - name: VAULT_ADDR
+          value: "https://host.minikube.internal:8200"
+        - name: VAULT_NAMESPACE
+          value: "master-demo"
+        - name: VAULT_SKIP_VERIFY
+          value: "true"
+        - name: OLLAMA_URL
+          value: "http://ollama.agentic-demo.svc.cluster.local:11434"
+        - name: SPIRE_SOCKET
+          value: "/run/spire/sockets/agent.sock"
+        - name: JWT_SECRET
+          value: "demo-secret-key-change-in-production"
+        volumeMounts:
+        - name: app-code
+          mountPath: /app
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets
+          readOnly: true
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8001
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8001
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+      volumes:
+      - name: app-code
+        configMap:
+          name: ai-agent-app
+      - name: spire-agent-socket
+        hostPath:
+          path: /run/spire/sockets
+          type: Directory
+
+# Made with Bob

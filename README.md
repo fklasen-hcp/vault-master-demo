@@ -21,7 +21,8 @@ This repository demonstrates how to use HashiCorp's Vault Secrets Operator (VSO)
   - [3. PKI Certificate Auto-Renewal Demo](#3-pki-certificate-auto-renewal-demo)
   - [4. Encryption as a Service Demo](#4-encryption-as-a-service-demo)
   - [5. Control Groups Demo](#5-control-groups-demo)
-  - [6. Audit Monitoring Demo](#6-audit-monitoring-demo)
+  - [6. Agentic AI Security Demo](#6-agentic-ai-security-demo)
+  - [7. Audit Monitoring Demo](#7-audit-monitoring-demo)
 - [Technical Details: Authentication and Secret Flows](#technical-details-authentication-and-secret-flows)
 - [Vault Resources](#vault-resources-with-master-demo--prefix)
 - [Configuration Files](#configuration-files)
@@ -149,7 +150,10 @@ This setup uses:
 - **make** - Command-line build tool (usually pre-installed on macOS/Linux)
 - **Vault Enterprise** running at `127.0.0.1:8200`
 - Vault must be **unsealed** and accessible
-- **Minikube** installed and running
+- **Minikube** installed and running with sufficient resources:
+  - **Minimum**: 4GB RAM, 2 CPUs (for basic demos)
+  - **Recommended**: 8GB RAM, 4 CPUs (for all demos including Agentic AI)
+  - Verify with: `minikube config view` or `make check-agentic-resources`
 - **kubectl** and **helm** installed
 - **Docker** - Required for building the audit exporter image
 - **jq** - JSON processor for cleanup scripts (`brew install jq` on macOS)
@@ -342,6 +346,7 @@ All port-forwards are automatically started by `make master-demo`. Access the de
 - **PKI Demo**: http://localhost:10003
 - **Encryption Demo**: http://localhost:10004
 - **Control Groups Demo**: http://localhost:10005
+- **Agentic AI Demo**: http://localhost:10006 (if resources available)
 - **Grafana**: http://localhost:10000 (admin/admin)
 - **Prometheus**: http://localhost:9999
 - **PostgreSQL**: localhost:9998
@@ -666,7 +671,7 @@ Demonstrates Vault's **Transit** (encryption) and **Transform** (tokenization wi
 - **Multi-Region Support**: Generate US or Swedish fake customer data
 - **Interactive Decryption**: Click any cipher cell to decrypt individual values
 
-**Access the demo application** at http://localhost:10001
+**Access the demo application** at http://localhost:10004
 
 **Demo Features:**
 
@@ -835,7 +840,7 @@ make setup-encryption-vault    # Configure Vault engines
 make deploy-encryption-demo    # Deploy to Kubernetes
 
 # Access and monitor
-make encryption-port-forward   # Access UI (http://localhost:10001)
+make encryption-port-forward   # Access UI (http://localhost:10004)
 make encryption-logs          # View application logs
 make encryption-status        # Check deployment status
 
@@ -983,7 +988,216 @@ make clean-controlgroups
 - **Compliance**: GDPR, HIPAA, PCI-DSS requirements
 
 
-### 6. Audit Monitoring Demo
+### 6. Agentic AI Security Demo
+
+**Advanced Demo**: Secure AI agent workflows with proper authentication, authorization, and auditing using HashiCorp Vault, JWT-based identity, and local LLM.
+
+This demo showcases how to build secure AI agent systems that:
+- Use JWT tokens for user authentication and authorization
+- Implement entity-based authorization with dynamic policy attachment
+- Inherit user permissions for database access via Vault entities
+- Provide full audit trails with user and agent context
+- Run locally with intelligent resource management
+
+**⚠️ Resource Requirements:**
+- **Minimum**: 6GB available RAM, 3 CPU cores
+- **Recommended**: 8GB available RAM, 4 CPU cores
+- The system automatically checks resources before deployment
+- If insufficient, provides clear guidance on resource allocation
+
+**Architecture:**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Web UI (Flask)                                                   │
+│ - User login (Alice: read-only, Bob: admin)                    │
+│ - Generates JWT tokens with user identity and groups           │
+│ - Chat interface for natural language queries                   │
+│ - Live Vault audit log display (filtered for agentic demo)     │
+│ - Database activity monitoring (logs + active users)            │
+│ - Authenticates to Vault via Kubernetes auth                   │
+└────────────────────┬────────────────────────────────────────────┘
+                     │ JWT Token (signed with RSA key from Vault)
+                     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ AI Agent Service (FastAPI)                                      │
+│ - Validates user JWT token (RS256 signature)                   │
+│ - Authenticates to Vault using Kubernetes ServiceAccount       │
+│ - Creates Vault entity alias for user (if not exists)          │
+│ - Attaches user group policies to entity dynamically           │
+│ - Retrieves user-scoped database credentials from Vault        │
+│ - Calls Ollama LLM for natural language processing            │
+│ - Executes database operations with proper authorization       │
+│ - Adds user context to Vault audit logs via headers           │
+└────────────────────┬────────────────────────────────────────────┘
+                     │
+        ┌────────────┼────────────┐
+        │            │            │
+        ▼            ▼            ▼
+┌──────────┐  ┌──────────┐  ┌──────────┐
+│ Vault    │  │ Vault    │  │ Ollama   │
+│ K8s Auth │  │ JWT Auth │  │ LLM      │
+│          │  │ + Entity │  │ (Llama   │
+│ Agent    │  │ Aliases  │  │ 3.2 1B)  │
+│ Auth     │  │          │  │          │
+│          │  │ Dynamic  │  │ Local    │
+│          │  │ DB Creds │  │ Model    │
+└──────────┘  └──────────┘  └──────────┘
+```
+
+**Key Features:**
+
+1. **JWT-Based User Authentication**
+   - UI generates signed JWT tokens with user identity and groups
+   - RSA key pair stored in Vault KV (private key for signing)
+   - Agent validates JWT signature using public key from Vault
+   - Token includes: username, groups (readonly/admin), expiration
+
+2. **Vault Entity-Based Authorization**
+   - Dynamic entity alias creation for each user
+   - Group-based policy attachment (alice → readonly, bob → admin)
+   - Policies attached to entities, not tokens
+   - Enables user-scoped database credential retrieval
+
+3. **User-Scoped Permissions**
+   - **Alice** (readonly group): Can query products, cannot modify
+   - **Bob** (admin group): Full access to create, update, delete
+   - Agent retrieves credentials based on user's entity policies
+   - Database credentials scoped to user authorization level
+
+4. **Complete Audit Trail**
+   - Every operation logged with:
+     - User ID (alice/bob)
+     - Agent context (via custom headers)
+     - Request context
+     - Database operation performed
+   - Real-time audit log display in UI (filtered for agentic demo)
+
+5. **Local LLM Integration**
+   - Ollama with Llama 3.2 1B model
+   - Natural language to SQL translation
+   - Runs entirely locally (no external API calls)
+   - Automatic model download on first deployment
+
+**Demo Flow:**
+
+1. **Login as Alice** (read-only user)
+   - Ask: "Show me all products"
+   - ✅ Query succeeds with read-only credentials
+   - Try: "Add a new product"
+   - ❌ Operation denied (insufficient permissions)
+
+2. **Login as Bob** (admin user)
+   - Ask: "Add a new product: Laptop, $999"
+   - ✅ Insert succeeds with admin credentials
+   - Ask: "Update product price"
+   - ✅ Update succeeds
+
+3. **Observe Audit Logs**
+   - See user ID in every operation
+   - See agent context in custom headers
+   - See database credentials used
+   - Full compliance trail
+   - Database activity monitoring (logs + active users)
+
+**Access:**
+```bash
+# Check if your system has sufficient resources
+make check-agentic-resources
+
+# Deploy the demo (automatically checks resources)
+make agentic-demo
+
+# Or deploy standalone (minimal resources)
+make agentic-demo-only
+
+# Access the UI
+make agentic-port-forward
+# Open http://localhost:10006
+```
+
+**Deployment Modes:**
+
+1. **Full Deployment** (`make master-demo`)
+   - Deploys all demos including Agentic AI if resources available
+   - Automatically checks resources before deployment
+   - Skips Agentic AI with clear message if insufficient resources
+
+2. **Standalone Mode** (`make agentic-demo-only`)
+   - Deploys only Agentic AI demo components
+   - Minimal resource footprint
+   - Ideal for dedicated testing
+
+3. **Add-on Mode** (`make agentic-demo`)
+   - Adds Agentic AI to existing deployment
+   - Checks resources first
+   - Provides guidance if resources insufficient
+
+**Monitoring:**
+```bash
+# Check deployment status
+make agentic-status
+
+# View UI logs
+make agentic-ui-logs
+
+# View agent logs
+make agentic-logs
+
+# View Ollama logs
+make ollama-logs
+
+# Check resource usage
+kubectl top pods -n agentic-demo
+```
+
+**Cleanup:**
+```bash
+# Remove Agentic AI demo
+make clean-agentic
+
+# Cleanup is also included in
+make clean-master-demo
+```
+
+**Technical Components:**
+
+- **Ollama**: Local LLM service with Llama 3.2 1B model
+- **AI Agent**: FastAPI service handling JWT validation, Vault auth, and LLM
+- **Web UI**: Flask application with user login, JWT generation, and chat interface
+- **PostgreSQL**: Database with products table for demo queries
+- **Vault**: Entity-based authorization with JWT and Kubernetes auth
+
+**Vault Configuration:**
+- **Auth Methods**:
+  - `master-demo-auth` (Kubernetes auth for agent and UI)
+  - `master-demo-jwt` (JWT auth for user identity)
+- **Policies**:
+  - `master-demo-agentic-base` - Base agent permissions
+  - `master-demo-agentic-alice` - Read-only database access (attached to alice entity)
+  - `master-demo-agentic-bob` - Full database access (attached to bob entity)
+  - `master-demo-policy-agentic-ui` - UI permissions (JWT key access)
+- **Database Roles**:
+  - `agentic-readonly-role` - Read-only credentials for Alice
+  - `agentic-admin-role` - Full access credentials for Bob
+- **Entities**: Dynamic entity aliases created for each user with group-based policies
+- **Audit**: All operations logged with user context via custom headers
+
+**Use Cases:**
+- Secure AI agent systems with proper authorization
+- Compliance requirements for AI operations
+- Multi-user AI applications with role-based access
+- Audit trails for AI-driven database operations
+- Entity-based authorization for dynamic policy attachment
+
+**Security Benefits:**
+1. **JWT-Based Identity**: Signed tokens with user identity and groups
+2. **Entity-Based Authorization**: Dynamic policy attachment based on user groups
+3. **Least Privilege**: Users get only necessary permissions via entity policies
+4. **Complete Audit Trail**: Every operation tracked with user context
+5. **User Context Propagation**: Agent actions tied to users via entities
+6. **Dynamic Credentials**: Database passwords rotate automatically
+
+### 7. Audit Monitoring Demo
 
 Real-time monitoring and visualization of Vault operations through Prometheus and Grafana, with two complementary dashboards:
 - **Audit Dashboard** - Security and compliance monitoring from audit logs
@@ -1492,9 +1706,9 @@ make stop-port-forwards     # Stop all port-forwards
 make status-port-forwards   # Check which port-forwards are running
 make db-ui-port-forward     # Access DB UI demo only (http://localhost:10002)
 make pki-port-forward       # Access PKI demo only (http://localhost:10003)
-make encryption-port-forward # Access Encryption demo only (http://localhost:10001)
+make encryption-port-forward # Access Encryption demo only (http://localhost:10004)
 make postgres-port-forward  # Port-forward PostgreSQL only (localhost:9998)
-make gitlab-port-forward    # Port-forward GitLab UI (http://localhost:10004)
+make gitlab-port-forward    # Port-forward GitLab UI (http://localhost:10001)
 ```
 
 ### Monitoring & Testing

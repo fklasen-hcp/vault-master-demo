@@ -1,0 +1,220 @@
+# SPIRE Server - Issues SPIFFE identities to workloads
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spire-server
+  namespace: agentic-demo
+
+---
+# ClusterRole for node and token review access
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: spire-server-cluster-role
+rules:
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get"]
+- apiGroups: ["authentication.k8s.io"]
+  resources: ["tokenreviews"]
+  verbs: ["create"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: spire-server-cluster-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: spire-server-cluster-role
+subjects:
+- kind: ServiceAccount
+  name: spire-server
+  namespace: agentic-demo
+
+---
+# Role for ConfigMap and Pod access in agentic-demo namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spire-server-role
+  namespace: agentic-demo
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "create", "update", "patch"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spire-server-role-binding
+  namespace: agentic-demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: spire-server-role
+subjects:
+- kind: ServiceAccount
+  name: spire-server
+  namespace: agentic-demo
+
+---
+# ConfigMap for SPIRE bundle (will be populated by SPIRE Server)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spire-bundle
+  namespace: agentic-demo
+data:
+  bundle.crt: ""
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spire-server
+  namespace: agentic-demo
+data:
+  server.conf: |
+    server {
+      bind_address = "0.0.0.0"
+      bind_port = "8081"
+      trust_domain = "master-demo.local"
+      data_dir = "/run/spire/data"
+      log_level = "DEBUG"
+      ca_ttl = "168h"
+      default_x509_svid_ttl = "1h"
+    }
+
+    plugins {
+      DataStore "sql" {
+        plugin_data {
+          database_type = "sqlite3"
+          connection_string = "/run/spire/data/datastore.sqlite3"
+        }
+      }
+
+      NodeAttestor "k8s_psat" {
+        plugin_data {
+          clusters = {
+            "master-demo-cluster" = {
+              service_account_allow_list = ["agentic-demo:spire-agent"]
+            }
+          }
+        }
+      }
+
+      KeyManager "memory" {
+        plugin_data {}
+      }
+
+      Notifier "k8sbundle" {
+        plugin_data {
+          namespace = "agentic-demo"
+          config_map = "spire-bundle"
+          config_map_key = "bundle.crt"
+        }
+      }
+    }
+
+    health_checks {
+      listener_enabled = true
+      bind_address = "0.0.0.0"
+      bind_port = "8080"
+      live_path = "/live"
+      ready_path = "/ready"
+    }
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spire-server
+  namespace: agentic-demo
+spec:
+  type: ClusterIP
+  ports:
+  - name: grpc
+    port: 8081
+    targetPort: 8081
+    protocol: TCP
+  selector:
+    app: spire-server
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: spire-server
+  namespace: agentic-demo
+  labels:
+    app: spire-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spire-server
+  serviceName: spire-server
+  template:
+    metadata:
+      labels:
+        app: spire-server
+    spec:
+      serviceAccountName: spire-server
+      containers:
+      - name: spire-server
+        image: ghcr.io/spiffe/spire-server:1.9.0
+        args:
+        - -config
+        - /run/spire/config/server.conf
+        ports:
+        - containerPort: 8081
+          name: grpc
+        - containerPort: 8080
+          name: healthz
+        volumeMounts:
+        - name: spire-config
+          mountPath: /run/spire/config
+          readOnly: true
+        - name: spire-data
+          mountPath: /run/spire/data
+        livenessProbe:
+          httpGet:
+            path: /live
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 60
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "400m"
+      volumes:
+      - name: spire-config
+        configMap:
+          name: spire-server
+  volumeClaimTemplates:
+  - metadata:
+      name: spire-data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+
+# Made with Bob

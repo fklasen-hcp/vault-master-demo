@@ -469,5 +469,66 @@ When creating a new demo app, copy the HTML template structure and apply the com
 
 ---
 
-**Last Updated**: 2026-05-15
-**Version**: 1.1
+## Deployment Patterns
+
+### ConfigMap-Based Deployments
+
+All demo applications should use ConfigMap-based deployments for easier updates and consistency:
+
+**Benefits:**
+- No need to rebuild Docker images for code changes
+- Faster iteration during development
+- Consistent with other demos in the project
+- Simpler deployment workflow
+
+**Pattern:**
+```yaml
+# ConfigMap is created separately by Makefile from app.py
+# This ensures the latest version is always deployed
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-app
+  namespace: demo-namespace
+spec:
+  template:
+    spec:
+      containers:
+      - name: app
+        image: python:3.11-slim
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            pip install flask hvac requests pyjwt
+            cd /app && python app.py
+        volumeMounts:
+        - name: app-code
+          mountPath: /app
+      volumes:
+      - name: app-code
+        configMap:
+          name: app-configmap
+```
+
+**Makefile Integration:**
+```makefile
+deploy-demo:
+    kubectl create configmap app-configmap \
+        --from-file=app.py=demo/app.py \
+        -n demo-namespace \
+        --dry-run=client -o yaml | kubectl apply -f -
+    kubectl apply -f demo/deployment.yaml
+```
+
+**Update Workflow:**
+1. Modify `app.py` locally
+2. Run `make deploy-demo` to update ConfigMap
+3. Restart pod: `kubectl rollout restart deployment/demo-app -n demo-namespace`
+
+**Note:** This pattern eliminates the need for Docker image rebuilds and Minikube image loading, making development much faster.
+
+---
+
+**Last Updated**: 2026-06-01
+**Version**: 1.2

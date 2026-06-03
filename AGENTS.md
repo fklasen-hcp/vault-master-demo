@@ -35,8 +35,108 @@ Before making any changes, **ALWAYS** review these files:
 ❌ Missing Vault logo background  
 ❌ Missing `zoom: 0.8`  
 ❌ Using emojis in section titles  
-❌ Including "Demo" in page titles  
-❌ Adding subtitles in header  
+❌ Including "Demo" in page titles
+❌ Adding subtitles in header
+
+## 🚨 CRITICAL: No Manual Fixes
+
+**NEVER apply manual fixes during development or troubleshooting!**
+
+All fixes, configurations, and changes MUST be added to the appropriate setup scripts or deployment files. This ensures:
+- Changes persist across clean deployments
+- Other developers can reproduce the setup
+- The project remains maintainable
+- Documentation stays accurate
+
+### Examples of Manual Fixes to AVOID:
+❌ Running `kubectl create` commands manually
+❌ Running `vault write` commands manually
+❌ Editing files inside running containers
+❌ Creating resources without updating scripts
+❌ Fixing permissions manually
+
+### Instead, DO THIS:
+✅ Add commands to setup scripts in `scripts/setup/`
+✅ Update deployment YAML files
+✅ Update Makefile targets
+✅ Update cleanup scripts in `scripts/cleanup/`
+✅ Document changes in CHANGELOG.md
+
+**If you discover a fix during troubleshooting, immediately add it to the appropriate script before moving on.**
+
+## 🚨 CRITICAL: Don't Assume - Investigate and Verify
+
+**NEVER make assumptions about root causes without verification!**
+
+When troubleshooting issues:
+- ❌ Don't assume what the problem is
+- ❌ Don't jump to conclusions based on symptoms
+- ❌ Don't apply fixes without understanding the root cause
+- ✅ Investigate systematically
+- ✅ Verify each hypothesis with evidence
+- ✅ Check logs, status, and actual behavior
+- ✅ Test assumptions before implementing fixes
+
+### Example:
+If logs are empty:
+1. ❌ DON'T assume: "The filter must be wrong"
+2. ✅ DO verify: Check if the log file has recent entries
+3. ✅ DO verify: Check if the file is accessible
+4. ✅ DO verify: Check if there are any errors in the application logs
+5. ✅ DO verify: Test the filter logic with actual data
+
+**Only implement fixes after you've verified the actual root cause.**
+
+## 🚨 CRITICAL: Updating Docker Images in Kubernetes
+
+### The Problem
+When using `imagePullPolicy: Never` (for local development with Minikube), Kubernetes will NOT pull updated images even after rebuilding them. This causes pods to run old code even though you've made changes.
+
+### Symptoms
+- Code changes don't appear in running pods
+- `kubectl exec` shows old code in the container
+- Rebuilding Docker image and deleting pods doesn't help
+- Docker build uses cached layers
+
+### The Solution
+**ALWAYS use this workflow when updating application code:**
+
+```bash
+# 1. Build the Docker image (use --no-cache if needed)
+cd <demo-directory>
+docker build -t <image-name>:latest .
+
+# 2. Load image into Minikube
+minikube image load <image-name>:latest
+
+# 3. DELETE AND REAPPLY the deployment (not just delete the pod!)
+kubectl delete -f deployment.yaml
+sleep 2
+kubectl apply -f deployment.yaml
+```
+
+### Why This Works
+- Deleting the deployment removes the pod AND the deployment spec
+- Reapplying creates a fresh deployment that pulls the latest image from Minikube's cache
+- Just deleting the pod keeps the old deployment spec, which may reference cached image layers
+
+### Example
+```bash
+# Update agentic AI demo UI
+cd agentic-ai-demo/ui
+docker build -t agentic-ui:latest .
+minikube image load agentic-ui:latest
+kubectl delete -f deployment.yaml
+sleep 2
+kubectl apply -f deployment.yaml
+```
+
+### Verification
+Always verify the deployed code matches your changes:
+```bash
+kubectl exec -n <namespace> <pod-name> -- cat /app/<file>.py | grep "<unique-code-snippet>"
+```
+
 
 ## 🏗️ Project Structure
 

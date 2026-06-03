@@ -1,0 +1,103 @@
+# Ollama - Local LLM service running Llama 3.2 1B
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ollama
+  namespace: agentic-demo
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-models
+  namespace: agentic-demo
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: agentic-demo
+spec:
+  type: ClusterIP
+  ports:
+  - port: 11434
+    targetPort: 11434
+    protocol: TCP
+    name: http
+  selector:
+    app: ollama
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: agentic-demo
+  labels:
+    app: ollama
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "11434"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: ollama
+      # Note: Model will be pulled on first use by the main container
+      # This avoids init container timeout issues
+      containers:
+      - name: ollama
+        image: ollama/ollama:latest
+        ports:
+        - containerPort: 11434
+          name: http
+        env:
+        - name: OLLAMA_HOST
+          value: "0.0.0.0:11434"
+        - name: OLLAMA_ORIGINS
+          value: "*"
+        volumeMounts:
+        - name: ollama-models
+          mountPath: /root/.ollama
+        livenessProbe:
+          httpGet:
+            path: /api/tags
+            port: 11434
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /api/tags
+            port: 11434
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+        resources:
+          requests:
+            memory: "4Gi"
+            cpu: "2"
+          limits:
+            memory: "8Gi"
+            cpu: "4"
+      volumes:
+      - name: ollama-models
+        persistentVolumeClaim:
+          claimName: ollama-models
+
+# Made with Bob

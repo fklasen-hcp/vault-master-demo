@@ -1,0 +1,140 @@
+# Web UI - User interface for interacting with the AI agent
+---
+# ConfigMap is created separately by Makefile from app.py
+# This ensures the latest version is always deployed
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agentic-ui
+  namespace: agentic-demo
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: agentic-ui-postgres-logs
+rules:
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: agentic-ui-postgres-logs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: agentic-ui-postgres-logs
+subjects:
+- kind: ServiceAccount
+  name: agentic-ui
+  namespace: agentic-demo
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentic-demo-ui
+  namespace: agentic-demo
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8002
+    targetPort: 8002
+    protocol: TCP
+    name: http
+  selector:
+    app: agentic-demo-ui
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentic-demo-ui
+  namespace: agentic-demo
+  labels:
+    app: agentic-demo-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agentic-demo-ui
+  template:
+    metadata:
+      labels:
+        app: agentic-demo-ui
+    spec:
+      serviceAccountName: agentic-ui
+      containers:
+      - name: ui
+        image: python:3.11-slim
+        command: ["/bin/bash", "-c"]
+        args:
+          - |
+            pip install flask requests pyjwt hvac cryptography psycopg2-binary kubernetes
+            cd /app && python app.py
+        ports:
+        - containerPort: 8002
+          name: http
+        env:
+        - name: AI_AGENT_URL
+          value: "http://ai-agent.agentic-demo.svc.cluster.local:8001"
+        - name: JWT_SECRET
+          value: "demo-secret-key-change-in-production"
+        - name: VAULT_ADDR
+          value: "https://host.minikube.internal:8200"
+        - name: VAULT_NAMESPACE
+          value: "master-demo"
+        - name: VAULT_SKIP_VERIFY
+          value: "true"
+        - name: POSTGRES_HOST
+          value: "postgres-postgresql.postgres.svc.cluster.local"
+        - name: POSTGRES_PORT
+          value: "5432"
+        - name: POSTGRES_DB
+          value: "postgres"
+        - name: POSTGRES_USER
+          value: "postgres"
+        - name: POSTGRES_PASSWORD
+          value: "secret-pass"
+        volumeMounts:
+        - name: app-code
+          mountPath: /app
+        - name: audit-log
+          mountPath: /host-home
+          readOnly: true
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8002
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8002
+          initialDelaySeconds: 20
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: app-code
+        configMap:
+          name: agentic-ui-app
+      - name: audit-log
+        hostPath:
+          path: /host-home
+          type: Directory
+
+# Made with Bob

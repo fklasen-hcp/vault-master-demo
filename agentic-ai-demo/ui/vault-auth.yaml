@@ -1,0 +1,19 @@
+# Kubernetes Service Account and Vault Authentication for UI
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agentic-ui
+  namespace: agentic-demo
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: agentic-ui-token
+  namespace: agentic-demo
+  annotations:
+    kubernetes.io/service-account.name: agentic-ui
+type: kubernetes.io/service-account-token
+
+# Made with Bob

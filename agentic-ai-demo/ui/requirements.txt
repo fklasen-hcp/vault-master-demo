@@ -1,0 +1,7 @@
+Flask==3.0.0
+requests==2.31.0
+PyJWT==2.8.0
+psycopg2-binary==2.9.9
+hvac==2.1.0
+cryptography==41.0.7
+kubernetes==28.1.0

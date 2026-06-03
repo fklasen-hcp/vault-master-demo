@@ -19,7 +19,28 @@ if [ -z "$VAULT_TOKEN" ]; then
     exit 1
 fi
 
-# Use master-demo namespace
+# Create and use master-demo namespace
+echo -e "\n${GREEN}Checking for master-demo namespace...${NC}"
+
+# Temporarily unset VAULT_NAMESPACE to work from root
+SAVED_NAMESPACE=$VAULT_NAMESPACE
+unset VAULT_NAMESPACE
+
+# Check if namespace exists
+if vault namespace list 2>/dev/null | grep -q "^master-demo/$"; then
+    echo -e "${YELLOW}Namespace 'master-demo' already exists${NC}"
+else
+    echo -e "${GREEN}Creating master-demo namespace from root...${NC}"
+    if vault namespace create master-demo; then
+        echo -e "${GREEN}✓ Namespace 'master-demo' created${NC}"
+    else
+        echo -e "${RED}ERROR: Failed to create namespace 'master-demo'${NC}"
+        echo -e "${RED}Make sure you have admin privileges in Vault${NC}"
+        exit 1
+    fi
+fi
+
+# Now set the namespace for all subsequent operations
 export VAULT_NAMESPACE=master-demo
 
 # Wait for PostgreSQL to be ready
@@ -76,6 +97,8 @@ if [ -z "$POSTGRES_PORT" ]; then
         done
     fi
     
+    # When using port-forward, Vault is running locally on the host
+    # So it connects to 127.0.0.1 (the port-forward endpoint)
     POSTGRES_HOST="127.0.0.1"
     POSTGRES_PORT="9998"
 else
@@ -88,6 +111,15 @@ echo -e "${GREEN}PostgreSQL connection details:${NC}"
 echo -e "  Host: $POSTGRES_HOST"
 echo -e "  Port: $POSTGRES_PORT"
 
+echo -e "\n${GREEN}Enabling database secrets engine...${NC}"
+# Enable database secrets engine if not already enabled
+if ! vault secrets list | grep -q "^master-demo-db/"; then
+    vault secrets enable -path=master-demo-db database
+    echo -e "${GREEN}✓ Database secrets engine enabled at master-demo-db/${NC}"
+else
+    echo -e "${YELLOW}Database secrets engine already enabled${NC}"
+fi
+
 echo -e "\n${GREEN}Configuring Vault database connection...${NC}"
 
 # Retry logic for database connection (PostgreSQL might need a moment to fully start)
@@ -95,27 +127,41 @@ MAX_RETRIES=5
 RETRY_COUNT=0
 RETRY_DELAY=5
 
+# Temporarily disable exit on error for retry loop
+set +e
+
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if vault write master-demo-db/config/master-demo-db \
+    echo -e "${YELLOW}Attempting to configure Vault database connection...${NC}"
+    echo -e "${YELLOW}Connection URL: postgresql://postgres:***@${POSTGRES_HOST}:${POSTGRES_PORT}/postgres?sslmode=disable${NC}"
+    
+    VAULT_OUTPUT=$(vault write master-demo-db/config/master-demo-db \
        plugin_name=postgresql-database-plugin \
        allowed_roles="dev-postgres" \
        connection_url="postgresql://{{username}}:{{password}}@${POSTGRES_HOST}:${POSTGRES_PORT}/postgres?sslmode=disable" \
        username="postgres" \
-       password="$POSTGRES_PASSWORD" 2>/dev/null; then
+       password="$POSTGRES_PASSWORD" 2>&1)
+    VAULT_EXIT_CODE=$?
+    
+    if [ $VAULT_EXIT_CODE -eq 0 ]; then
         echo -e "${GREEN}✓ Database connection configured successfully${NC}"
         break
     else
         RETRY_COUNT=$((RETRY_COUNT + 1))
+        echo -e "${RED}Vault error: $VAULT_OUTPUT${NC}"
         if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
             echo -e "${YELLOW}Database connection failed, retrying in ${RETRY_DELAY}s... (attempt $RETRY_COUNT/$MAX_RETRIES)${NC}"
             sleep $RETRY_DELAY
         else
             echo -e "${RED}Failed to configure database connection after $MAX_RETRIES attempts${NC}"
             echo -e "${YELLOW}PostgreSQL might not be fully ready. Try running the script again.${NC}"
+            set -e  # Re-enable exit on error
             exit 1
         fi
     fi
 done
+
+# Re-enable exit on error after retry loop
+set -e
 
 echo -e "\n${GREEN}Creating database role...${NC}"
 vault write master-demo-db/roles/dev-postgres \
