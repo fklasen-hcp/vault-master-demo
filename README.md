@@ -40,6 +40,7 @@ This setup uses:
 - **PostgreSQL** - for dynamic database credentials demo
 - **PKI Engine** - for automatic certificate generation and renewal
 - **GitLab CE** - for CI/CD pipeline integration demo
+- **Ollama** - for local LLM inference in Agentic AI demo
 
 ## Architecture
 
@@ -60,6 +61,23 @@ This setup uses:
 │  │ - Dynamic secrets: Web UI + DB (auto-rotated creds)    │  │
 │  │ - PKI secrets: Web app (auto-renewed TLS certs)        │  │
 │  │ - Encryption: Web UI (Transit + Transform engines)     │  │
+│  │ - Control Groups: Multi-party authorization            │  │
+│  │ - Agentic AI: JWT auth + entity-based authorization    │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                                                                 │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │ Agentic AI Demo (agentic-demo namespace)                │  │
+│  │                                                          │  │
+│  │  Web UI (Flask) ──JWT Token──▶ AI Agent (FastAPI)      │  │
+│  │  - User login (Alice/Bob)      - JWT validation        │  │
+│  │  - JWT generation              - K8s auth to Vault     │  │
+│  │  - Chat interface              - Entity management     │  │
+│  │  - Audit log display           - Dynamic DB creds      │  │
+│  │  - DB monitoring               - Ollama LLM calls      │  │
+│  │                                                          │  │
+│  │  Ollama (Llama 3.2 1B) ◀────── AI Agent                │  │
+│  │  - Local LLM inference         - Natural language      │  │
+│  │  - No external APIs            - SQL generation        │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                                                                 │
 │  ┌──────────────────────────────────────────────────────────┐  │
@@ -95,6 +113,10 @@ This setup uses:
          │ - master-demo-vso-transit-cache (VSO) │
          │ - master-demo-encryption-transit      │
          │ - master-demo-encryption-transform    │
+         │                 │
+         │ Auth Methods:   │
+         │ - master-demo-auth (Kubernetes)       │
+         │ - master-demo-jwt (JWT + Entities)    │
          │                 │
          │ Audit Device:   │
          │ - File audit    │
@@ -151,9 +173,10 @@ This setup uses:
 - **Vault Enterprise** running at `127.0.0.1:8200`
 - Vault must be **unsealed** and accessible
 - **Minikube** installed and running with sufficient resources:
-  - **Minimum**: 4GB RAM, 2 CPUs (for basic demos)
-  - **Recommended**: 8GB RAM, 4 CPUs (for all demos including Agentic AI)
-  - Verify with: `minikube config view` or `make check-agentic-resources`
+  - **Minimum**: 4GB RAM, 2 CPUs (for basic demos without Agentic AI)
+  - **Full Demo**: 16GB RAM, 8 CPUs, 50GB disk (for all demos including Agentic AI)
+  - Start with: `minikube start --cpus=8 --memory=16384 --disk-size=50g --driver=docker`
+  - Verify resources: `minikube config view` or `make check-agentic-resources`
 - **kubectl** and **helm** installed
 - **Docker** - Required for building the audit exporter image
 - **jq** - JSON processor for cleanup scripts (`brew install jq` on macOS)
@@ -288,6 +311,17 @@ make deploy-dynamic-secrets-local
 make setup-pki-vault
 make deploy-pki-secrets
 
+# Redeploy encryption as a service demo only
+make setup-encryption-vault
+make deploy-encryption-secrets
+
+# Redeploy control groups demo only
+make setup-controlgroups-vault
+make deploy-controlgroups-demo
+
+# Redeploy agentic AI demo only
+make agentic-demo-only
+
 # Redeploy audit monitoring only
 make setup-audit-monitoring
 ```
@@ -335,6 +369,11 @@ This single command will:
 7. ✅ Deploy dynamic secrets **interactive web UI demo**
 8. ✅ Configure PKI engines (root + issuing CA)
 9. ✅ Deploy PKI certificate auto-renewal demo
+10. ✅ Deploy encryption as a service demo
+11. ✅ Deploy control groups demo
+12. ✅ Deploy agentic AI demo (if resources available)
+13. ✅ Setup audit monitoring with Prometheus and Grafana
+14. ✅ Start all port-forwards automatically
 
 ### 4. Access the Interactive Demos
 All port-forwards are automatically started by `make master-demo`. Access the demos at:
@@ -373,6 +412,15 @@ make db-ui-port-forward
 # PKI Demo - Certificate auto-renewal web interface
 make pki-port-forward
 
+# Encryption Demo - Transit encryption and FPE
+make encryption-port-forward
+
+# Control Groups Demo - Multi-party authorization
+make controlgroups-port-forward
+
+# Agentic AI Demo - AI-powered database queries
+make agentic-port-forward
+
 # GitLab - CI/CD integration demo
 make gitlab-port-forward
 
@@ -405,7 +453,9 @@ Use the username/password login that's automatically created by `make master-dem
 
 ### For CLI Operations
 
-Continue using your root token with the namespace environment variable:
+**Option 1: Using Root Token (Admin Operations)**
+
+Use your root token with the namespace environment variable:
 
 ```bash
 export VAULT_ADDR=https://127.0.0.1:8200
@@ -418,10 +468,27 @@ vault kv get master-demo-kv/webapp/config
 vault read master-demo-db/creds/dev-postgres
 ```
 
+**Option 2: Using Username/Password (Demo User)**
+
+Login with the same credentials as the UI:
+
+```bash
+export VAULT_ADDR=https://127.0.0.1:8200
+export VAULT_SKIP_VERIFY=true
+export VAULT_NAMESPACE=master-demo
+
+# Login with username/password
+vault login -method=userpass username=demo password=demo123
+
+# Now you can run commands
+vault kv get master-demo-kv/webapp/config
+vault read master-demo-db/creds/dev-postgres
+```
+
 ### Summary
 
 - **UI Access**: Use `demo`/`demo123` credentials (created automatically)
-- **CLI Access**: Use your root token with `VAULT_NAMESPACE=master-demo`
+- **CLI Access**: Use root token OR login with `demo`/`demo123` via userpass
 - **Operator/Pods**: Use Kubernetes auth (configured automatically)
 
 **Note:** The audit monitoring feature requires a Vault audit device at path `master-demo-audit/` writing to `~/audit.log`. The setup script (`make master-demo`) will automatically:
@@ -577,18 +644,19 @@ kubectl delete secret -n db-demo vso-db-demo
 
 Complement the demo by showing how dynamic roles are actually created and removed in PostgreSQL.
 
-**Access pgAdmin** at http://localhost:5050 (admin@admin.com / admin)
+**Use pgAdmin Desktop Application** to connect to the PostgreSQL database.
 
 **Connect to PostgreSQL in pgAdmin:**
-1. Right-click **Servers** → **Register** → **Server**
-2. **General tab**: Name: `Demo PostgreSQL`
-3. **Connection tab**:
-   - Host: `postgres.postgres.svc.cluster.local`
-   - Port: `5432` (internal cluster), `9998` (external via port-forward)
-   - Database: `mydb`
+1. Open pgAdmin desktop application
+2. Right-click **Servers** → **Register** → **Server**
+3. **General tab**: Name: `Demo PostgreSQL`
+4. **Connection tab**:
+   - Host: `localhost`
+   - Port: `9998` (via port-forward)
+   - Database: `postgres`
    - Username: `postgres`
-   - Password: `password`
-4. Click **Save**
+   - Password: `secret-pass`
+5. Click **Save**
 
 **Monitor Dynamic Roles in Real-Time:**
 1. Navigate to: **Servers** → **Demo PostgreSQL** → **Login/Group Roles**
@@ -1697,6 +1765,7 @@ make deploy-db-ui           # Deploy dynamic secrets web UI demo
 make setup-pki-vault        # Configure PKI engines in Vault
 make deploy-pki-secrets     # Deploy PKI demo application
 make setup-gitlab-demo      # Complete GitLab CI demo setup
+make agentic-demo-only      # Deploy Agentic AI demo only
 ```
 
 ### Port-Forwarding
@@ -1707,8 +1776,12 @@ make status-port-forwards   # Check which port-forwards are running
 make db-ui-port-forward     # Access DB UI demo only (http://localhost:10002)
 make pki-port-forward       # Access PKI demo only (http://localhost:10003)
 make encryption-port-forward # Access Encryption demo only (http://localhost:10004)
+make controlgroups-port-forward # Access Control Groups demo only (http://localhost:10005)
+make agentic-port-forward   # Access Agentic AI demo only (http://localhost:10006)
 make postgres-port-forward  # Port-forward PostgreSQL only (localhost:9998)
 make gitlab-port-forward    # Port-forward GitLab UI (http://localhost:10001)
+make grafana-port-forward   # Access Grafana dashboard (http://localhost:10000)
+make prometheus-port-forward # Access Prometheus (http://localhost:9999)
 ```
 
 ### Monitoring & Testing
@@ -1721,6 +1794,8 @@ make all-recover            # Restart VSO, audit monitoring, and verify PKI rota
 make db-logs                # View dynamic DB demo logs (CLI version)
 make db-ui-status           # Check dynamic DB UI demo status
 make db-ui-logs             # View dynamic DB UI demo logs
+make agentic-status         # Check Agentic AI demo status
+make agentic-logs           # View Agentic AI demo logs
 make vso-logs               # View VSO operator logs
 # GitLab validation is done by re-running the demo pipeline after updating Vault
 ```
