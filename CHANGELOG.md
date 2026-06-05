@@ -15,13 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Restored audit-log volume mount in `agentic-ai-demo/ui/deployment.yaml`
 
 ### Added
-- **Agentic AI Demo - Entity-Based Authorization** (2026-06-01): Implemented proper Vault entity-based authorization with JWT groups
+- **Agentic AI Demo - Entity-Based Authorization** (2026-06-01): Implemented Vault JWT-based user authorization for the agentic demo
   - JWT auth method at `master-demo-jwt/` with RSA256 key pair
   - RSA private key stored in Vault KV for JWT signing
   - RSA public key used for JWT validation
-  - JWT roles for alice and bob mapping to respective policies
-  - Agent authenticates users with JWT to get entity-specific Vault tokens
-  - Dynamic policy attachment based on JWT claims (alice → readonly, bob → admin)
+  - Agent authenticates users with JWT to get Vault tokens
   - UI fetches JWT private key from Vault on startup (with HMAC fallback)
   - Agent fetches JWT public key from Vault on startup (with HMAC fallback)
   - Updated `scripts/setup/setup-agentic-vault.sh` to configure JWT auth
@@ -52,6 +50,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - dynamic-secrets/app-deployment-ui.yaml
 
 ### Changed
+- **Agentic AI Demo - Group-Based Authorization Enforcement** (2026-06-05): Corrected authorization flow so Vault derives policies from JWT group claims via Identity groups
+  - Replaced app-selected JWT roles with a generic JWT role in `scripts/setup/setup-agentic-vault.sh`
+  - Added Vault Identity external groups for `readers` and `admins`
+  - Added JWT group aliases so `groups` claim values map automatically to Vault Identity groups
+  - Attached `master-demo-agentic-readonly` and `master-demo-agentic-admin` policies to Vault Identity groups instead of JWT roles
+  - Updated `agentic-ai-demo/agent/agent.py` so the agent no longer chooses `alice` or `bob` as the security boundary
+  - Preserved JWT token creation in `agentic-ai-demo/ui/app.py` as claims-only (`sub`, `groups`, `iss`, `aud`)
+  - Corrected prior documentation to reflect that automatic group-based policy assignment is now enforced in Vault
 - **Improved Agentic AI demo deployment** - Added automatic Vault and PostgreSQL dependency management (2026-06-01)
   - Created `ensure-vault-and-postgresql` target that checks if Vault and PostgreSQL are deployed
   - Automatically sets up Vault (with VSO) if not running

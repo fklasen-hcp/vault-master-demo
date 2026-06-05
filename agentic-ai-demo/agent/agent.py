@@ -155,25 +155,19 @@ def validate_user_token(token: str) -> Dict[str, Any]:
 
 def authenticate_to_vault(user_jwt: str, user_id: str, user_groups: list) -> str:
     """
-    Authenticate user to Vault using JWT auth method.
-    This creates an entity token with user-specific policies attached.
-    Returns: user entity token with appropriate policies (alice or bob)
+    Authenticate user to Vault using a generic JWT auth role.
+    Vault Identity groups and group aliases derive effective policies from the JWT groups claim.
+    Returns: user entity token with policies inherited from Vault identity groups
     """
     try:
-        logger.info(f"Authenticating user {user_id} to Vault using JWT auth")
+        logger.info(f"Authenticating user {user_id} to Vault using generic JWT auth role")
         
         headers = {
             "X-Vault-Namespace": VAULT_NAMESPACE
         }
         
-        # Determine role based on user groups
-        if "admins" in user_groups:
-            role = "bob"
-        else:
-            role = "alice"
-        
         auth_data = {
-            "role": role,
+            "role": "agentic-user",
             "jwt": user_jwt
         }
         
@@ -189,7 +183,10 @@ def authenticate_to_vault(user_jwt: str, user_id: str, user_groups: list) -> str
             raise HTTPException(status_code=500, detail="Vault authentication failed")
         
         vault_token = response.json()["auth"]["client_token"]
-        logger.info(f"Successfully authenticated user {user_id} to Vault with role {role}")
+        logger.info(
+            f"Successfully authenticated user {user_id} to Vault with generic role agentic-user; "
+            f"effective policies derived from groups {user_groups}"
+        )
         return vault_token
         
     except Exception as e:
@@ -381,7 +378,7 @@ async def chat(request: ChatRequest):
             logger.info(f"LLM determined database operation needed: {llm_action['action']}")
             
             # Authenticate user to Vault using JWT auth
-            # This creates an entity token with user-specific policies (alice or bob)
+            # Vault derives effective policies from JWT group aliases and identity groups
             vault_token = authenticate_to_vault(request.user_token, user_id, user_groups)
             
             # Get database credentials (just-in-time, least-privilege)

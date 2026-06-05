@@ -256,6 +256,7 @@ master-demo/
 5. Add Makefile targets
 6. Update cleanup script
 7. Document in README.md
+8. If the change affects authorization flow, cleanup behavior, or demo architecture, update the relevant sections in [README.md](README.md) and ensure [scripts/cleanup/cleanup-all.sh](scripts/cleanup/cleanup-all.sh) and [clean-agentic](Makefile:1067) remain aligned
 
 ### Fixing UI Issues:
 

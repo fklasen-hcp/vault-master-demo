@@ -180,23 +180,23 @@ path "master-demo-kv/data/agentic/jwt-key" {
 EOF
 echo -e "${GREEN}✓ Base agent policy created${NC}"
 
-echo -e "\n${BLUE}Step 3: Creating Alice (read-only) policy${NC}"
-vault policy write master-demo-agentic-alice - <<EOF
+echo -e "\n${BLUE}Step 3: Creating read-only policy${NC}"
+vault policy write master-demo-agentic-readonly - <<EOF
 # Read-only database credentials
 path "master-demo-db/creds/agentic-readonly-role" {
   capabilities = ["read"]
 }
 EOF
-echo -e "${GREEN}✓ Alice policy created${NC}"
+echo -e "${GREEN}✓ Read-only policy created${NC}"
 
-echo -e "\n${BLUE}Step 4: Creating Bob (admin) policy${NC}"
-vault policy write master-demo-agentic-bob - <<EOF
+echo -e "\n${BLUE}Step 4: Creating admin policy${NC}"
+vault policy write master-demo-agentic-admin - <<EOF
 # Admin database credentials
 path "master-demo-db/creds/agentic-admin-role" {
   capabilities = ["read"]
 }
 EOF
-echo -e "${GREEN}✓ Bob policy created${NC}"
+echo -e "${GREEN}✓ Admin policy created${NC}"
 
 echo -e "\n${BLUE}Step 5: Creating Kubernetes auth role for agent base access${NC}"
 
@@ -284,7 +284,7 @@ vault write auth/master-demo-jwt/config \
     jwt_validation_pubkeys="$JWT_PUBLIC_KEY" \
     jwt_supported_algs="RS256" \
     bound_issuer="agentic-demo-ui" \
-    default_role="alice" || {
+    default_role="agentic-user" || {
     echo -e "${RED}ERROR: Failed to configure JWT auth${NC}"
     exit 1
 }
@@ -368,32 +368,145 @@ echo "  Headers: x-agent-id, x-agent-type, x-agent-action, x-user-request"
 echo "  HMAC: disabled (headers logged in plaintext)"
 
 
-echo -e "\n${BLUE}Step 8: Creating JWT auth roles${NC}"
-# Alice role - maps to alice policy
-vault write auth/master-demo-jwt/role/alice \
-    role_type="jwt" \
-    bound_audiences="vault" \
-    user_claim="sub" \
-    groups_claim="groups" \
-    policies="master-demo-agentic-alice" \
-    ttl=1h || {
-    echo -e "${RED}ERROR: Failed to create Alice JWT role${NC}"
-    exit 1
-}
-echo -e "${GREEN}✓ Alice JWT role created${NC}"
+echo -e "\n${BLUE}Step 8: Creating Vault Identity groups and generic JWT auth role${NC}"
 
-# Bob role - maps to bob policy
-vault write auth/master-demo-jwt/role/bob \
+echo -e "${YELLOW}Looking up JWT auth accessor...${NC}"
+JWT_AUTH_ACCESSOR=$(vault auth list -format=json | jq -r '."master-demo-jwt/".accessor')
+if [ -z "$JWT_AUTH_ACCESSOR" ] || [ "$JWT_AUTH_ACCESSOR" = "null" ]; then
+    echo -e "${RED}ERROR: Failed to determine JWT auth accessor for master-demo-jwt/${NC}"
+    exit 1
+fi
+echo -e "${GREEN}✓ JWT auth accessor found${NC}"
+
+echo -e "${YELLOW}Creating or updating external identity groups...${NC}"
+
+READERS_GROUP_ID=$(vault read -format=json identity/group/name/agentic-readers 2>/dev/null | jq -r '.data.id // empty')
+if [ -n "$READERS_GROUP_ID" ]; then
+    vault write identity/group/id/"$READERS_GROUP_ID" \
+        name="agentic-readers" \
+        type="external" \
+        policies="master-demo-agentic-readonly" >/dev/null || {
+        echo -e "${RED}ERROR: Failed to update readers identity group${NC}"
+        exit 1
+    }
+else
+    READERS_GROUP_JSON=$(vault write -format=json identity/group \
+        name="agentic-readers" \
+        type="external" \
+        policies="master-demo-agentic-readonly" 2>/dev/null) || {
+        echo -e "${RED}ERROR: Failed to create readers identity group${NC}"
+        exit 1
+    }
+    READERS_GROUP_ID=$(echo "$READERS_GROUP_JSON" | jq -r '.data.id // empty')
+    if [ -z "$READERS_GROUP_ID" ]; then
+        READERS_GROUP_ID=$(vault read -format=json identity/group/name/agentic-readers 2>/dev/null | jq -r '.data.id // empty')
+    fi
+fi
+if [ -z "$READERS_GROUP_ID" ]; then
+    echo -e "${RED}ERROR: Failed to resolve readers identity group ID${NC}"
+    exit 1
+fi
+
+ADMINS_GROUP_ID=$(vault read -format=json identity/group/name/agentic-admins 2>/dev/null | jq -r '.data.id // empty')
+if [ -n "$ADMINS_GROUP_ID" ]; then
+    vault write identity/group/id/"$ADMINS_GROUP_ID" \
+        name="agentic-admins" \
+        type="external" \
+        policies="master-demo-agentic-admin" >/dev/null || {
+        echo -e "${RED}ERROR: Failed to update admins identity group${NC}"
+        exit 1
+    }
+else
+    ADMINS_GROUP_JSON=$(vault write -format=json identity/group \
+        name="agentic-admins" \
+        type="external" \
+        policies="master-demo-agentic-admin" 2>/dev/null) || {
+        echo -e "${RED}ERROR: Failed to create admins identity group${NC}"
+        exit 1
+    }
+    ADMINS_GROUP_ID=$(echo "$ADMINS_GROUP_JSON" | jq -r '.data.id // empty')
+    if [ -z "$ADMINS_GROUP_ID" ]; then
+        ADMINS_GROUP_ID=$(vault read -format=json identity/group/name/agentic-admins 2>/dev/null | jq -r '.data.id // empty')
+    fi
+fi
+if [ -z "$ADMINS_GROUP_ID" ]; then
+    echo -e "${RED}ERROR: Failed to resolve admins identity group ID${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}✓ External identity groups configured${NC}"
+
+echo -e "${YELLOW}Creating or updating group aliases for JWT groups claim values...${NC}"
+
+READERS_ALIAS_ID=$(vault list -format=json identity/group-alias/id 2>/dev/null | jq -r '.[]' | while read -r alias_id; do
+    alias_json=$(vault read -format=json identity/group-alias/id/"$alias_id" 2>/dev/null || true)
+    alias_name=$(echo "$alias_json" | jq -r '.data.name // empty')
+    alias_accessor=$(echo "$alias_json" | jq -r '.data.mount_accessor // empty')
+    if [ "$alias_name" = "readers" ] && [ "$alias_accessor" = "$JWT_AUTH_ACCESSOR" ]; then
+        echo "$alias_id"
+        break
+    fi
+done)
+
+if [ -n "$READERS_ALIAS_ID" ]; then
+    vault write identity/group-alias/id/"$READERS_ALIAS_ID" \
+        name="readers" \
+        mount_accessor="$JWT_AUTH_ACCESSOR" \
+        canonical_id="$READERS_GROUP_ID" >/dev/null || {
+        echo -e "${RED}ERROR: Failed to update readers group alias${NC}"
+        exit 1
+    }
+else
+    vault write identity/group-alias \
+        name="readers" \
+        mount_accessor="$JWT_AUTH_ACCESSOR" \
+        canonical_id="$READERS_GROUP_ID" >/dev/null || {
+        echo -e "${RED}ERROR: Failed to create readers group alias${NC}"
+        exit 1
+    }
+fi
+
+ADMINS_ALIAS_ID=$(vault list -format=json identity/group-alias/id 2>/dev/null | jq -r '.[]' | while read -r alias_id; do
+    alias_json=$(vault read -format=json identity/group-alias/id/"$alias_id" 2>/dev/null || true)
+    alias_name=$(echo "$alias_json" | jq -r '.data.name // empty')
+    alias_accessor=$(echo "$alias_json" | jq -r '.data.mount_accessor // empty')
+    if [ "$alias_name" = "admins" ] && [ "$alias_accessor" = "$JWT_AUTH_ACCESSOR" ]; then
+        echo "$alias_id"
+        break
+    fi
+done)
+
+if [ -n "$ADMINS_ALIAS_ID" ]; then
+    vault write identity/group-alias/id/"$ADMINS_ALIAS_ID" \
+        name="admins" \
+        mount_accessor="$JWT_AUTH_ACCESSOR" \
+        canonical_id="$ADMINS_GROUP_ID" >/dev/null || {
+        echo -e "${RED}ERROR: Failed to update admins group alias${NC}"
+        exit 1
+    }
+else
+    vault write identity/group-alias \
+        name="admins" \
+        mount_accessor="$JWT_AUTH_ACCESSOR" \
+        canonical_id="$ADMINS_GROUP_ID" >/dev/null || {
+        echo -e "${RED}ERROR: Failed to create admins group alias${NC}"
+        exit 1
+    }
+fi
+
+echo -e "${GREEN}✓ JWT group aliases configured${NC}"
+
+echo -e "${YELLOW}Creating generic JWT auth role...${NC}"
+vault write auth/master-demo-jwt/role/agentic-user \
     role_type="jwt" \
     bound_audiences="vault" \
     user_claim="sub" \
     groups_claim="groups" \
-    policies="master-demo-agentic-bob" \
     ttl=1h || {
-    echo -e "${RED}ERROR: Failed to create Bob JWT role${NC}"
+    echo -e "${RED}ERROR: Failed to create generic JWT auth role${NC}"
     exit 1
 }
-echo -e "${GREEN}✓ Bob JWT role created${NC}"
+echo -e "${GREEN}✓ Generic JWT auth role created${NC}"
 
 echo -e "\n${BLUE}Step 9: Updating database connection allowed roles${NC}"
 
@@ -508,8 +621,8 @@ echo -e "${GREEN}✓ PostgreSQL configured to log all SQL statements${NC}"
 
 echo -e "\n${GREEN}=== Vault Configuration Complete ===${NC}"
 echo -e "${GREEN}✓ Kubernetes auth configured for UI and Agent${NC}"
-echo -e "${GREEN}✓ JWT auth configured for user-based authorization${NC}"
-echo -e "${GREEN}✓ Policies created (base, alice, bob)${NC}"
+echo -e "${GREEN}✓ JWT auth configured for group-based identity authorization${NC}"
+echo -e "${GREEN}✓ Policies created (base, alice, bob) and attached via identity groups${NC}"
 echo -e "${GREEN}✓ Database roles created (readonly, admin)${NC}"
 echo -e "${GREEN}✓ Products table ready${NC}"
 echo -e ""

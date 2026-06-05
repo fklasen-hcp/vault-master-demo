@@ -1069,4 +1069,14 @@ clean-agentic:
 	$(call header,$@)
 	@echo "Cleaning up Agentic AI demo..."
 	@kubectl delete namespace agentic-demo --ignore-not-found=true
+	@export VAULT_SKIP_VERIFY=true; \
+	export VAULT_NAMESPACE=master-demo; \
+	if vault status >/dev/null 2>&1; then \
+		vault auth disable master-demo-jwt 2>/dev/null && echo "✓ JWT auth disabled" || echo "  JWT auth not found"; \
+		for policy in master-demo-agentic-base master-demo-agentic-readonly master-demo-agentic-admin master-demo-agentic-alice master-demo-agentic-bob master-demo-policy-agentic-ui; do \
+			vault policy delete "$$policy" 2>/dev/null && echo "✓ Policy $$policy deleted" || true; \
+		done; \
+	else \
+		echo "  Vault not reachable, skipping Vault-side Agentic cleanup"; \
+	fi
 	@echo "✓ Agentic AI demo cleaned up"

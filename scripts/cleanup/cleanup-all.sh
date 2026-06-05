@@ -72,12 +72,13 @@ if vault namespace list 2>/dev/null | grep -q "master-demo/"; then
     # Disable auth methods
     echo -e "${YELLOW}Disabling auth methods in master-demo namespace...${NC}"
     vault auth disable master-demo-auth 2>/dev/null && echo "✓ Kubernetes auth disabled" || echo "  Kubernetes auth not found"
+    vault auth disable master-demo-jwt 2>/dev/null && echo "✓ JWT auth disabled" || echo "  JWT auth not found"
     vault auth disable master-demo-spiffe 2>/dev/null && echo "✓ SPIFFE auth disabled" || echo "  SPIFFE auth not found"
     vault auth disable userpass 2>/dev/null && echo "✓ Userpass auth disabled" || echo "  Userpass auth not found"
     
     # Delete all policies
     echo -e "${YELLOW}Deleting policies in master-demo namespace...${NC}"
-    for policy in master-demo-webapp master-demo-auth-policy-db master-demo-pki-issuer master-demo-auth-policy-operator master-demo-admin master-demo-gitlab-policy master-demo-controlgroups-user master-demo-controlgroups-ops master-demo-controlgroups-security master-demo-agentic-base master-demo-agentic-alice master-demo-agentic-bob; do
+    for policy in master-demo-webapp master-demo-auth-policy-db master-demo-pki-issuer master-demo-auth-policy-operator master-demo-admin master-demo-gitlab-policy master-demo-controlgroups-user master-demo-controlgroups-ops master-demo-controlgroups-security master-demo-agentic-base master-demo-agentic-readonly master-demo-agentic-admin master-demo-agentic-alice master-demo-agentic-bob master-demo-policy-agentic-ui; do
         vault policy delete "$policy" 2>/dev/null && echo "✓ Policy $policy deleted" || true
     done
     

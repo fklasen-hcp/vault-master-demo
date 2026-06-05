@@ -62,7 +62,7 @@ This setup uses:
 │  │ - PKI secrets: Web app (auto-renewed TLS certs)        │  │
 │  │ - Encryption: Web UI (Transit + Transform engines)     │  │
 │  │ - Control Groups: Multi-party authorization            │  │
-│  │ - Agentic AI: JWT auth + entity-based authorization    │  │
+│  │ - Agentic AI: JWT auth + group-based identity auth     │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                                                                 │
 │  ┌──────────────────────────────────────────────────────────┐  │
@@ -71,7 +71,8 @@ This setup uses:
 │  │  Web UI (Flask) ──JWT Token──▶ AI Agent (FastAPI)      │  │
 │  │  - User login (Alice/Bob)      - JWT validation        │  │
 │  │  - JWT generation              - K8s auth to Vault     │  │
-│  │  - Chat interface              - Entity management     │  │
+│  │  - JWT claims display          - JWT login to Vault    │  │
+│  │  - Chat interface              - Group alias mapping   │  │
 │  │  - Audit log display           - Dynamic DB creds      │  │
 │  │  - DB monitoring               - Ollama LLM calls      │  │
 │  │                                                          │  │
@@ -116,7 +117,7 @@ This setup uses:
          │                 │
          │ Auth Methods:   │
          │ - master-demo-auth (Kubernetes)       │
-         │ - master-demo-jwt (JWT + Entities)    │
+         │ - master-demo-jwt (JWT + Identity groups) │
          │                 │
          │ Audit Device:   │
          │ - File audit    │

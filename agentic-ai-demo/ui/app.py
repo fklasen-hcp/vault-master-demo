@@ -280,6 +280,33 @@ def get_session():
     else:
         return jsonify({'authenticated': False})
 
+@app.route('/api/jwt_claims', methods=['GET'])
+def get_jwt_claims():
+    """Decode current session JWT claims without verifying signature for UI display"""
+    if 'token' not in session:
+        return jsonify({'authenticated': False}), 401
+
+    try:
+        import jwt
+        token = session['token']
+        claims = jwt.decode(token, options={"verify_signature": False})
+        header = jwt.get_unverified_header(token)
+
+        return jsonify({
+            'authenticated': True,
+            'header': header,
+            'claims': {
+                'sub': claims.get('sub'),
+                'groups': claims.get('groups', []),
+                'iss': claims.get('iss'),
+                'aud': claims.get('aud'),
+                'iat': claims.get('iat'),
+                'exp': claims.get('exp')
+            }
+        })
+    except Exception as e:
+        return jsonify({'error': f'Failed to decode JWT claims: {str(e)}'}), 500
+
 @app.route('/api/audit_logs', methods=['GET'])
 def get_audit_logs():
     """Get recent audit logs"""
@@ -758,6 +785,10 @@ HTML_TEMPLATE = '''
             grid-column: 1 / -1;
         }
 
+        .jwt-claims-panel {
+            margin-top: 20px;
+        }
+
         .panel {
             background: #1a1a1a;
             border-radius: 12px;
@@ -1187,8 +1218,16 @@ HTML_TEMPLATE = '''
                 </div>
             </div>
             
-            <!-- Raw Vault Audit Logs Panel -->
+            <!-- Decoded JWT Claims Panel -->
             <div class="panel raw-logs-panel">
+                <h2>Current Session JWT Claims</h2>
+                <div id="jwtClaims" class="raw-audit-logs" style="height: 240px;">
+                    <div class="loading">Loading JWT claims...</div>
+                </div>
+            </div>
+
+            <!-- Raw Vault Audit Logs Panel -->
+            <div class="panel raw-logs-panel jwt-claims-panel">
                 <h2>Vault Audit Logs (Raw)</h2>
                 <div id="rawAuditLogs" class="raw-audit-logs">
                     <div class="loading">Loading raw audit logs...</div>
@@ -1446,6 +1485,41 @@ HTML_TEMPLATE = '''
                 });
         }
 
+        // Load decoded JWT claims for current session
+        function loadJwtClaims() {
+            fetch('/api/jwt_claims')
+                .then(r => r.json())
+                .then(data => {
+                    const claimsDiv = document.getElementById('jwtClaims');
+                    claimsDiv.innerHTML = '';
+
+                    if (data.error) {
+                        claimsDiv.innerHTML = `<div class="error">Error: ${data.error}</div>`;
+                        return;
+                    }
+
+                    if (!data.authenticated) {
+                        claimsDiv.innerHTML = '<div class="loading">Not authenticated</div>';
+                        return;
+                    }
+
+                    const jwtView = {
+                        header: data.header,
+                        claims: data.claims
+                    };
+
+                    const claimDiv = document.createElement('div');
+                    claimDiv.className = 'raw-log-entry';
+                    claimDiv.innerHTML = syntaxHighlightJSON(jwtView);
+                    claimsDiv.appendChild(claimDiv);
+                })
+                .catch(err => {
+                    console.error('Error loading JWT claims:', err);
+                    const claimsDiv = document.getElementById('jwtClaims');
+                    claimsDiv.innerHTML = '<div class="error">Failed to load JWT claims</div>';
+                });
+        }
+
         // Syntax highlight JSON with important keys in different colors
         function syntaxHighlightJSON(json) {
             const jsonStr = JSON.stringify(json, null, 2);
@@ -1507,12 +1581,14 @@ HTML_TEMPLATE = '''
             loadDbUsers();
             loadAuditLogs();
             loadRawAuditLogs();
-            
+            loadJwtClaims();
+
             auditLogInterval = setInterval(() => {
                 loadDbLogs();
                 loadDbUsers();
                 loadAuditLogs();
                 loadRawAuditLogs();
+                loadJwtClaims();
             }, 5000);  // Poll every 5 seconds
         }
     </script>
