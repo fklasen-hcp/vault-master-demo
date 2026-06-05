@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Agentic AI Demo - Audit Log Access** (2026-06-04): Fixed container creation timeout and enabled audit log viewing in UI
+  - Added Minikube mount setup in `scripts/setup/setup-agentic-vault.sh` to mount `$HOME` to `/host-home`
+  - Mount process runs in background and persists until Minikube is stopped
+  - UI can now access Vault audit logs at `/host-home/audit.log`
+  - Restored audit-log volume mount in `agentic-ai-demo/ui/deployment.yaml`
+
 ### Added
 - **Agentic AI Demo - Entity-Based Authorization** (2026-06-01): Implemented proper Vault entity-based authorization with JWT groups
   - JWT auth method at `master-demo-jwt/` with RSA256 key pair

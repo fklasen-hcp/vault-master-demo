@@ -50,6 +50,50 @@ if ! vault status > /dev/null 2>&1; then
 fi
 echo -e "${GREEN}✓ Vault is accessible${NC}"
 
+# Mount audit log directory into Minikube
+echo -e "\n${BLUE}Setting up audit log mount for Minikube...${NC}"
+AUDIT_LOG_DIR="$HOME"
+AUDIT_LOG_FILE="$HOME/audit.log"
+
+# Ensure audit log file exists
+if [ ! -f "$AUDIT_LOG_FILE" ]; then
+    echo -e "${YELLOW}Creating audit log file...${NC}"
+    touch "$AUDIT_LOG_FILE"
+    chmod 640 "$AUDIT_LOG_FILE"
+fi
+
+# Check if mount already exists
+if minikube ssh "test -d /host-home && test -f /host-home/audit.log" 2>/dev/null; then
+    echo -e "${GREEN}✓ Audit log already mounted in Minikube${NC}"
+else
+    echo -e "${YELLOW}Mounting $AUDIT_LOG_DIR to /host-home in Minikube...${NC}"
+    # Kill any existing mount process
+    pkill -f "minikube mount.*host-home" 2>/dev/null || true
+    sleep 1
+    
+    # Start mount in background
+    nohup minikube mount "$AUDIT_LOG_DIR:/host-home" > /tmp/minikube-mount.log 2>&1 &
+    MOUNT_PID=$!
+    
+    # Wait for mount to be ready (max 30 seconds)
+    echo -e "${YELLOW}Waiting for mount to be ready...${NC}"
+    for i in {1..30}; do
+        if minikube ssh "test -f /host-home/audit.log" 2>/dev/null; then
+            echo -e "${GREEN}✓ Audit log mounted successfully${NC}"
+            break
+        fi
+        if [ $i -eq 30 ]; then
+            echo -e "${RED}ERROR: Mount failed to become ready${NC}"
+            echo "Check /tmp/minikube-mount.log for details"
+            exit 1
+        fi
+        sleep 1
+    done
+    
+    echo -e "${GREEN}✓ Mount process running (PID: $MOUNT_PID)${NC}"
+    echo -e "${YELLOW}Note: Mount will persist until Minikube is stopped${NC}"
+fi
+
 # Use master-demo namespace
 export VAULT_NAMESPACE=master-demo
 echo -e "${BLUE}Using Vault namespace: ${VAULT_NAMESPACE}${NC}"
