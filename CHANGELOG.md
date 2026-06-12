@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **README.md - Updated Title and Description** (2026-06-12): Changed repository title from "Vault Secrets Operator with Local Vault Enterprise" to "HashiCorp Vault Enterprise Demo Suite" to better reflect the comprehensive nature of the demos beyond just VSO
+  - Updated title to emphasize the demo suite nature of the repository
+  - Rewrote overview section to highlight all 7 demos and their capabilities
+  - Clarified that VSO is used in some demos (static, dynamic, PKI) but not all
+  - Better organized component descriptions to show the full scope of Vault features demonstrated
+
 ### Fixed
 - **Agentic AI Demo - Audit Log Access** (2026-06-04): Fixed container creation timeout and enabled audit log viewing in UI
   - Added Minikube mount setup in `scripts/setup/setup-agentic-vault.sh` to mount `$HOME` to `/host-home`

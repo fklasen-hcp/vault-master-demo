@@ -1,6 +1,6 @@
-# Vault Secrets Operator with Local Vault Enterprise
+# HashiCorp Vault Enterprise Demo Suite
 
-This repository demonstrates how to use HashiCorp's Vault Secrets Operator (VSO) with a local Vault Enterprise server, showcasing static secrets, dynamic database credentials, and PKI certificate auto-renewal in Kubernetes.
+This repository provides a comprehensive collection of interactive demos showcasing HashiCorp Vault Enterprise capabilities including secrets management, encryption as a service, dynamic credentials, PKI automation, multi-party authorization, agentic AI security, and audit monitoring.
 
 ## Table of Contents
 
@@ -33,14 +33,24 @@ This repository demonstrates how to use HashiCorp's Vault Secrets Operator (VSO)
 
 ## Overview
 
-This setup uses:
-- **Local Vault Enterprise** server (127.0.0.1:8200) - persistent, production-like
-- **Minikube** Kubernetes cluster
-- **Vault Secrets Operator** - syncs secrets from Vault to Kubernetes
-- **PostgreSQL** - for dynamic database credentials demo
-- **PKI Engine** - for automatic certificate generation and renewal
-- **GitLab CE** - for CI/CD pipeline integration demo
-- **Ollama** - for local LLM inference in Agentic AI demo
+This demo suite showcases real-world Vault Enterprise use cases through interactive web applications and automated workflows. Each demo runs in Kubernetes (Minikube) and connects to a local Vault Enterprise server.
+
+**Key Components:**
+- **Local Vault Enterprise** server (127.0.0.1:8200) - persistent, production-like environment
+- **Minikube** Kubernetes cluster - hosts all demo applications
+- **PostgreSQL** - demonstrates dynamic database credentials
+- **Ollama** - provides local LLM inference for AI security demo
+- **Prometheus + Grafana** - monitors Vault audit logs and telemetry
+- **GitLab CE** (optional) - demonstrates CI/CD pipeline integration
+
+**Featured Demos:**
+1. **Static Secrets** - GitLab CI/CD integration with Vault Secrets Operator (VSO)
+2. **Dynamic Secrets** - Auto-rotating PostgreSQL credentials with interactive UI
+3. **PKI Automation** - Automatic certificate generation and renewal
+4. **Encryption as a Service** - Transit encryption and Transform (FPE) engines
+5. **Control Groups** - Multi-party authorization workflows
+6. **Agentic AI Security** - JWT authentication with group-based identity and dynamic credentials
+7. **Audit Monitoring** - Real-time Vault audit log analysis and telemetry dashboards
 
 ## Architecture
 
@@ -49,21 +59,19 @@ This setup uses:
 │   Minikube Cluster                                              │
 │                                                                 │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │ Vault Secrets Operator                                   │  │
-│  │ - Syncs static secrets (KV)                              │  │
-│  │ - Manages dynamic credentials (PostgreSQL)               │  │
-│  │ - Auto-renews PKI certificates                           │  │
+│  │ Demo Applications                                        │  │
+│  │                                                          │  │
+│  │ • Static Secrets: GitLab CI/CD (VSO integration)       │  │
+│  │ • Dynamic Secrets: Web UI + PostgreSQL (VSO managed)   │  │
+│  │ • PKI Secrets: Web app (VSO auto-renewal)              │  │
+│  │ • Encryption: Web UI (Transit + Transform engines)     │  │
+│  │ • Control Groups: Multi-party authorization UI         │  │
+│  │ • Agentic AI: JWT + group-based identity + AI agent    │  │
+│  │ • Audit Monitoring: Prometheus + Grafana dashboards    │  │
 │  └──────────────┬───────────────────────────────────────────┘  │
 │                 │                                               │
-│  ┌──────────────▼───────────────────────────────────────────┐  │
-│  │ Application Pods                                         │  │
-│  │ - Static secrets: GitLab CI/CD (username/password)      │  │
-│  │ - Dynamic secrets: Web UI + DB (auto-rotated creds)    │  │
-│  │ - PKI secrets: Web app (auto-renewed TLS certs)        │  │
-│  │ - Encryption: Web UI (Transit + Transform engines)     │  │
-│  │ - Control Groups: Multi-party authorization            │  │
-│  │ - Agentic AI: JWT auth + group-based identity auth     │  │
-│  └──────────────────────────────────────────────────────────┘  │
+│                 │ Kubernetes Auth, Direct API calls, VSO       │
+│                 │                                               │
 │                                                                 │
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │ Agentic AI Demo (agentic-demo namespace)                │  │
