@@ -14,6 +14,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Clarified that VSO is used in some demos (static, dynamic, PKI) but not all
   - Better organized component descriptions to show the full scope of Vault features demonstrated
 
+### Added
+- **README.md - Demo Screenshots** (2026-06-12): Added visual screenshots for all interactive demos
+  - Added `images/` directory for demo screenshots
+  - GitLab CI/CD pipeline screenshot showing Vault secret integration
+  - Dynamic Secrets UI showing auto-rotating PostgreSQL credentials
+  - PKI Certificate Auto-Renewal UI displaying certificate details
+  - Encryption as a Service UI with Transit and Transform engines
+  - Control Groups UI showing multi-party authorization workflow
+  - Agentic AI Security main UI with chat interface and audit logs
+  - Agentic AI JWT claims display showing token structure
+  - Audit Monitoring Grafana dashboard with comprehensive metrics
+
 ### Fixed
 - **Agentic AI Demo - Audit Log Access** (2026-06-04): Fixed container creation timeout and enabled audit log viewing in UI
   - Added Minikube mount setup in `scripts/setup/setup-agentic-vault.sh` to mount `$HOME` to `/host-home`

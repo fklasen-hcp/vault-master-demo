@@ -537,6 +537,8 @@ Static secrets are stored in Vault's KV v2 engine (`master-demo-kv`) and automat
 
 GitLab CE with a lightweight Kubernetes runner demonstrates how CI/CD pipelines can consume secrets from Vault via VSO.
 
+![GitLab CI/CD Pipeline](images/gitlab-ci.png)
+
 **Access GitLab** at http://localhost:10001
 - Username: `root`
 - Password: `VaultDemoStr0ng!2026`
@@ -602,6 +604,8 @@ Dynamic secrets are generated on-demand by Vault's database engine (`master-demo
 #### Option A: Interactive Web UI Demo (Recommended)
 
 The web UI provides a visual, interactive demonstration of dynamic credentials at **http://localhost:10002**
+
+![Dynamic Secrets Demo](images/dynamic-secrets.png)
 
 **Features:**
 - 🔄 **Real-time credential display** - Watch username/password update every ~30 seconds
@@ -692,6 +696,8 @@ Complement the demo by showing how dynamic roles are actually created and remove
 
 Certificates are automatically generated and renewed by Vault's PKI engine (`master-demo-pki-issuing`).
 
+![PKI Certificate Auto-Renewal](images/pki-secrets.png)
+
 **Access the demo application** at http://localhost:10003
 
 **Useful commands:**
@@ -738,6 +744,8 @@ make clean-pki-all
 ### 4. Encryption as a Service Demo
 
 Demonstrates Vault's **Transit** (encryption) and **Transform** (tokenization with FPE) engines for protecting sensitive data at rest. This interactive demo shows how to encrypt customer data, tokenize credit cards, manage encryption keys, and decrypt individual ciphertexts.
+
+![Encryption as a Service](images/encryption-secrets.png)
 
 **What This Demo Shows:**
 - **Transit Engine**: Encryption/decryption of sensitive fields (SSN, address)
@@ -964,6 +972,8 @@ The setup script creates:
 
 This demo showcases Vault's Control Groups feature, which requires multiple authorized users to approve access to sensitive secrets before they can be retrieved. It implements a "two-person rule" or "four-eyes principle" for secret access.
 
+![Control Groups Demo](images/control-groups.png)
+
 **Architecture:**
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -1069,6 +1079,8 @@ make clean-controlgroups
 
 **Advanced Demo**: Secure AI agent workflows with proper authentication, authorization, and auditing using HashiCorp Vault, JWT-based identity, and local LLM.
 
+![Agentic AI Security Demo](images/agentic-ai.png)
+
 This demo showcases how to build secure AI agent systems that:
 - Use JWT tokens for user authentication and authorization
 - Implement entity-based authorization with dynamic policy attachment
@@ -1128,6 +1140,8 @@ This demo showcases how to build secure AI agent systems that:
    - RSA key pair stored in Vault KV (private key for signing)
    - Agent validates JWT signature using public key from Vault
    - Token includes: username, groups (readonly/admin), expiration
+
+![JWT Claims Display](images/agentic-ai-jwt.png)
 
 2. **Vault Entity-Based Authorization**
    - Dynamic entity alias creation for each user
@@ -1279,6 +1293,8 @@ make clean-master-demo
 Real-time monitoring and visualization of Vault operations through Prometheus and Grafana, with two complementary dashboards:
 - **Audit Dashboard** - Security and compliance monitoring from audit logs
 - **Telemetry Dashboard** - Performance and health metrics (optional, requires telemetry enabled)
+
+![Audit Monitoring Dashboard](images/audit-monitoring.png)
 
 **Access the dashboards:**
 - **Grafana**: http://localhost:10000 (admin/admin)
