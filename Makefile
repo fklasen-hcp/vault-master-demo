@@ -40,7 +40,16 @@ start-minikube:
 		echo "Minikube is already running"; \
 	else \
 		echo "Starting minikube..."; \
-		minikube start; \
+		minikube start --cpus=8 --memory=16384 --disk-size=50g --driver=podman \
+			--container-runtime=cri-o \
+			--mount --mount-string="$$HOME:/host-home" || { \
+			echo ""; \
+			echo "ERROR: minikube failed to start. Check that:"; \
+			echo "  1. Podman Desktop is running"; \
+			echo "  2. The 'podman' binary is in your PATH (run: which podman)"; \
+			echo "  3. The podman machine is started (run: podman machine list)"; \
+			exit 1; \
+		}; \
 		sleep 5; \
 	fi
 
@@ -876,9 +885,9 @@ setup-agentic-vault:
 .PHONY: build-agentic-agent
 build-agentic-agent:
 	$(call header,$@)
-	@echo "Building AI agent Docker image..."
-	@eval $$(minikube docker-env) && \
-		docker build --no-cache -t ai-agent:latest agentic-ai-demo/agent/
+	@echo "Building AI agent container image..."
+	@eval $$(minikube podman-env) && \
+		podman build --no-cache -t ai-agent:latest agentic-ai-demo/agent/
 	@echo "✓ AI agent image built"
 
 .PHONY: deploy-agentic-demo
@@ -1029,8 +1038,8 @@ spire-server-logs:
 .PHONY: build-agentic-ui
 build-agentic-ui:
 	$(call header,$@)
-	@echo "Building Agentic AI UI Docker image..."
-	@cd agentic-ai-demo/ui && eval $$(minikube docker-env) && docker build -t agentic-demo-ui:latest .
+	@echo "Building Agentic AI UI container image..."
+	@cd agentic-ai-demo/ui && eval $$(minikube podman-env) && podman build -t agentic-demo-ui:latest .
 	@echo "✓ Agentic AI UI image built"
 
 .PHONY: deploy-agentic-ui

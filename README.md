@@ -181,13 +181,18 @@ This demo suite showcases real-world Vault Enterprise use cases through interact
 - **make** - Command-line build tool (usually pre-installed on macOS/Linux)
 - **Vault Enterprise** running at `127.0.0.1:8200`
 - Vault must be **unsealed** and accessible
+- **Podman Desktop** - Required as the container runtime (replaces Docker Desktop)
+  - Install from: https://podman-desktop.io
+  - During first launch, create a **podman machine** with: ≥8 CPUs, ≥20 GB RAM, ≥60 GB disk
+  - Ensure the podman machine is **running** before starting minikube (`podman machine start`)
+  - Ensure the `podman` binary is in your PATH (typically `/opt/podman/bin` — add to `~/.zshrc`)
 - **Minikube** installed and running with sufficient resources:
   - **Minimum**: 4GB RAM, 2 CPUs (for basic demos without Agentic AI)
   - **Full Demo**: 16GB RAM, 8 CPUs, 50GB disk (for all demos including Agentic AI)
-  - Start with: `minikube start --cpus=8 --memory=16384 --disk-size=50g --driver=docker`
+  - The `make master-demo` command starts minikube automatically with the correct flags
+  - To start manually: `minikube start --cpus=8 --memory=16384 --disk-size=50g --driver=podman --container-runtime=cri-o`
   - Verify resources: `minikube config view` or `make check-agentic-resources`
 - **kubectl** and **helm** installed
-- **Docker** - Required for building the audit exporter image
 - **jq** - JSON processor for cleanup scripts (`brew install jq` on macOS)
 - **curl**, **base64**, **openssl** - Standard CLI tools (usually pre-installed)
 - **VAULT_TOKEN** environment variable set

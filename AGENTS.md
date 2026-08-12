@@ -87,7 +87,7 @@ If logs are empty:
 
 **Only implement fixes after you've verified the actual root cause.**
 
-## 🚨 CRITICAL: Updating Docker Images in Kubernetes
+## 🚨 CRITICAL: Updating Container Images in Kubernetes
 
 ### The Problem
 When using `imagePullPolicy: Never` (for local development with Minikube), Kubernetes will NOT pull updated images even after rebuilding them. This causes pods to run old code even though you've made changes.
@@ -95,16 +95,16 @@ When using `imagePullPolicy: Never` (for local development with Minikube), Kuber
 ### Symptoms
 - Code changes don't appear in running pods
 - `kubectl exec` shows old code in the container
-- Rebuilding Docker image and deleting pods doesn't help
-- Docker build uses cached layers
+- Rebuilding container image and deleting pods doesn't help
+- Build uses cached layers
 
 ### The Solution
 **ALWAYS use this workflow when updating application code:**
 
 ```bash
-# 1. Build the Docker image (use --no-cache if needed)
+# 1. Build the container image (use --no-cache if needed)
 cd <demo-directory>
-docker build -t <image-name>:latest .
+podman build -t <image-name>:latest .
 
 # 2. Load image into Minikube
 minikube image load <image-name>:latest
@@ -124,7 +124,7 @@ kubectl apply -f deployment.yaml
 ```bash
 # Update agentic AI demo UI
 cd agentic-ai-demo/ui
-docker build -t agentic-ui:latest .
+podman build -t agentic-ui:latest .
 minikube image load agentic-ui:latest
 kubectl delete -f deployment.yaml
 sleep 2

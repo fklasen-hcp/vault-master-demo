@@ -153,38 +153,28 @@ else
     exit 1
 fi
 
-# Step 3: Fix Minikube Mount for Audit Monitoring
-print_section "Step 3: Restarting Minikube Mount for Audit Monitoring"
+# Step 3: Verify Minikube Mount for Audit Monitoring
+print_section "Step 3: Verifying Minikube Mount for Audit Monitoring"
 
 # Check if audit-monitoring namespace exists
 if kubectl get namespace audit-monitoring > /dev/null 2>&1; then
-    print_warning "Checking minikube mount..."
-    MOUNT_PID=$(pgrep -f "minikube mount.*home.*host-home" || true)
-    if [ -n "$MOUNT_PID" ]; then
-        print_warning "Killing stale mount process (PID: $MOUNT_PID)..."
-        kill $MOUNT_PID 2>/dev/null || true
-        sleep 2
-    fi
+    # With the Podman driver, the mount is established at minikube start time via --mount flag.
+    # No background process is needed — just verify it is present.
+    if minikube ssh "test -d /host-home" 2>/dev/null; then
+        print_success "Home directory available at /host-home in minikube"
 
-    print_warning "Restarting minikube mount..."
-    nohup minikube mount $HOME:/host-home --gid=1000 --uid=1000 > /tmp/minikube-mount.log 2>&1 &
-    MOUNT_PID=$!
-    sleep 5
-
-    if pgrep -f "minikube mount.*home.*host-home" > /dev/null; then
-        print_success "Home directory mounted at /host-home in minikube (PID: $MOUNT_PID)"
+        # Restart audit exporter to ensure it picks up the mount after reboot
+        print_warning "Restarting audit exporter pod..."
+        kubectl delete pod -n audit-monitoring -l app=vault-audit-exporter 2>/dev/null || true
+        sleep 3
+        print_success "Audit exporter restarted"
     else
-        print_warning "Failed to mount home directory (audit monitoring may not work)"
-        tail -20 /tmp/minikube-mount.log 2>/dev/null || true
+        print_warning "WARNING: /host-home is not mounted in minikube."
+        print_warning "The mount is configured at minikube start time (--mount flag)."
+        print_warning "If audit monitoring is not working, run: minikube delete && make start-minikube"
     fi
-
-    # Restart audit exporter to pick up the mount
-    print_warning "Restarting audit exporter pod..."
-    kubectl delete pod -n audit-monitoring -l app=vault-audit-exporter 2>/dev/null || true
-    sleep 3
-    print_success "Audit exporter restarted"
 else
-    print_warning "Audit monitoring namespace not found, skipping mount setup"
+    print_warning "Audit monitoring namespace not found, skipping mount check"
 fi
 
 # Step 4: Restart Demo Deployments

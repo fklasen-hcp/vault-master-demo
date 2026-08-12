@@ -7,15 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-08-12
+
 ### Changed
-- **README.md - Updated Title and Description** (2026-06-12): Changed repository title from "Vault Secrets Operator with Local Vault Enterprise" to "HashiCorp Vault Enterprise Demo Suite" to better reflect the comprehensive nature of the demos beyond just VSO
+- **Docker Desktop → Podman Desktop migration**: Full migration from Docker Desktop to Podman Desktop as the container runtime on macOS. All demos verified working end-to-end after migration.
+
+  **Container runtime changes:**
+  - `Makefile` (`build-agentic-agent`, `build-agentic-ui`): Replaced `minikube docker-env` + `docker build` with `minikube podman-env` + `podman build`
+  - `scripts/setup/setup-audit-monitoring.sh`: Updated `vault-audit-exporter` image build to use `minikube podman-env` + `podman build`
+  - `AGENTS.md`: Updated image build workflow and all examples to use `podman build`
+
+  **Minikube startup changes:**
+  - `Makefile` (`start-minikube`): Added explicit `--driver=podman --container-runtime=cri-o --mount --mount-string="$HOME:/host-home"` flags. The `--mount` flag replaces the previous `minikube mount` background-process approach which is not supported with the Podman driver on macOS. The `--container-runtime=cri-o` flag is required for `minikube podman-env` compatibility.
+  - `Makefile` (`start-minikube`): Added explicit error handling with actionable diagnostic messages if Podman is not running or not in PATH.
+
+  **Mount handling changes (all scripts):**
+  - `scripts/setup/setup-audit-monitoring.sh`: Replaced 40-line `minikube mount` background process with a simple `/host-home` presence verification check
+  - `scripts/setup/setup-agentic-vault.sh`: Same — mount block replaced with presence check
+  - `scripts/setup/recover-after-reboot.sh`: "Restart mount" step replaced with "Verify mount" step
+  - `scripts/setup/recover-pki-rotation.sh`: Same
+
+  **Documentation and prerequisites:**
+  - `README.md`: Updated `minikube start` command to include `--driver=podman --container-runtime=cri-o`; updated prerequisites to reference Podman Desktop with recommended podman machine sizing (≥8 CPUs, ≥20 GB RAM, ≥60 GB disk)
+
+### Fixed
+- **GitLab demo - Apple Silicon (arm64) compatibility**: Replaced hardcoded `x86_64-v16.11.1` GitLab runner helper image with `arm64-v16.11.1` in `scripts/setup/setup-gitlab-demo.sh`. The x86_64 binary caused a Go runtime `lfstack.push` fatal crash under QEMU emulation with the Podman driver. This was previously masked by Docker Desktop's transparent Rosetta 2 integration.
+- **GitLab demo - OOM kill during token creation**: Increased GitLab pod memory limit from 4 GB to 6 GB (request: 3 GB) in `static-secrets-gitlab-ci/manifests/gitlab-simple.yaml` to prevent OOM kill during `gitlab-rails runner` token creation. Added 60-second stabilisation delay in `scripts/setup/setup-gitlab-demo.sh` after services are ready before attempting the token creation.
+- **Audit monitoring - CRI-O image reference**: Updated `audit-monitoring/kubernetes/01-exporter-deployment.yaml` to reference `localhost/vault-audit-exporter:latest` instead of `vault-audit-exporter:latest`. CRI-O requires the `localhost/` prefix for locally-built images, unlike Docker which resolved unqualified names automatically.
+
+## [1.1.0] - 2026-06-12
+
+### Changed
+- **README.md - Updated Title and Description**: Changed repository title from "Vault Secrets Operator with Local Vault Enterprise" to "HashiCorp Vault Enterprise Demo Suite" to better reflect the comprehensive nature of the demos beyond just VSO
   - Updated title to emphasize the demo suite nature of the repository
   - Rewrote overview section to highlight all 7 demos and their capabilities
   - Clarified that VSO is used in some demos (static, dynamic, PKI) but not all
   - Better organized component descriptions to show the full scope of Vault features demonstrated
 
 ### Added
-- **README.md - Demo Screenshots** (2026-06-12): Added visual screenshots for all interactive demos
+- **README.md - Demo Screenshots**: Added visual screenshots for all interactive demos
   - Added `images/` directory for demo screenshots
   - GitLab CI/CD pipeline screenshot showing Vault secret integration
   - Dynamic Secrets UI showing auto-rotating PostgreSQL credentials
@@ -27,14 +57,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Audit Monitoring Grafana dashboard with comprehensive metrics
 
 ### Fixed
-- **Agentic AI Demo - Audit Log Access** (2026-06-04): Fixed container creation timeout and enabled audit log viewing in UI
+- **Agentic AI Demo - Audit Log Access**: Fixed container creation timeout and enabled audit log viewing in UI
   - Added Minikube mount setup in `scripts/setup/setup-agentic-vault.sh` to mount `$HOME` to `/host-home`
   - Mount process runs in background and persists until Minikube is stopped
   - UI can now access Vault audit logs at `/host-home/audit.log`
   - Restored audit-log volume mount in `agentic-ai-demo/ui/deployment.yaml`
 
-### Added
-- **Agentic AI Demo - Entity-Based Authorization** (2026-06-01): Implemented Vault JWT-based user authorization for the agentic demo
+- **Agentic AI Demo - Entity-Based Authorization**: Implemented Vault JWT-based user authorization for the agentic demo
   - JWT auth method at `master-demo-jwt/` with RSA256 key pair
   - RSA private key stored in Vault KV for JWT signing
   - RSA public key used for JWT validation
@@ -183,6 +212,7 @@ When making changes:
 
 ---
 
-[Unreleased]: https://github.com/yourusername/master-demo/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/yourusername/master-demo/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/yourusername/master-demo/compare/v1.3.3...v1.4.0
 [1.1.0]: https://github.com/yourusername/master-demo/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/yourusername/master-demo/releases/tag/v1.0.0

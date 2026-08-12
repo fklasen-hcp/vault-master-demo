@@ -8,25 +8,16 @@ NC='\033[0m'
 
 echo -e "${GREEN}=== Recovering after laptop sleep ===${NC}"
 
-# Fix minikube mount for audit monitoring
-echo -e "\n${GREEN}Checking minikube mount for audit monitoring...${NC}"
-MOUNT_PID=$(pgrep -f "minikube mount.*home.*host-home" || true)
-if [ -n "$MOUNT_PID" ]; then
-    echo -e "${YELLOW}Killing stale mount process (PID: $MOUNT_PID)...${NC}"
-    kill $MOUNT_PID 2>/dev/null || true
-    sleep 2
-fi
-
-echo -e "${GREEN}Restarting minikube mount...${NC}"
-nohup minikube mount $HOME:/host-home --gid=1000 --uid=1000 > /tmp/minikube-mount.log 2>&1 &
-MOUNT_PID=$!
-sleep 5
-
-if pgrep -f "minikube mount.*home.*host-home" > /dev/null; then
-    echo -e "${GREEN}✓ Home directory mounted at /host-home in minikube (PID: $MOUNT_PID)${NC}"
+# Verify minikube mount for audit monitoring
+# With the Podman driver, the mount is established at minikube start time via --mount flag.
+# No background process is needed — just verify it is present.
+echo -e "\n${GREEN}Checking /host-home mount for audit monitoring...${NC}"
+if minikube ssh "test -d /host-home" 2>/dev/null; then
+    echo -e "${GREEN}✓ Home directory available at /host-home in minikube${NC}"
 else
-    echo -e "${RED}Failed to mount home directory${NC}"
-    tail -20 /tmp/minikube-mount.log 2>/dev/null || true
+    echo -e "${YELLOW}WARNING: /host-home is not mounted in minikube.${NC}"
+    echo -e "${YELLOW}The mount is configured at minikube start time (--mount flag).${NC}"
+    echo -e "${YELLOW}If audit monitoring is not working, run: minikube delete && make start-minikube${NC}"
 fi
 
 # Restart audit exporter to pick up the mount

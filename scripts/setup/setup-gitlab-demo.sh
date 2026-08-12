@@ -135,6 +135,10 @@ if [ "$SERVICES_READY" != "true" ]; then
     exit 1
 fi
 
+# Allow GitLab services to fully stabilise before running memory-intensive rails commands
+echo -e "\n${YELLOW}Waiting 60 seconds for GitLab to fully stabilise...${NC}"
+sleep 60
+
 echo -e "\n${GREEN}Creating GitLab admin API token...${NC}"
 set +e
 TOKEN_OUTPUT=$(kubectl exec -n gitlab-demo $GITLAB_POD -- gitlab-rails runner "
@@ -360,7 +364,7 @@ kubectl exec -n gitlab-demo $RUNNER_POD -- gitlab-runner register \
   --executor "kubernetes" \
   --kubernetes-namespace "gitlab-demo" \
   --kubernetes-image "alpine:latest" \
-  --kubernetes-helper-image "gitlab/gitlab-runner-helper:x86_64-v16.11.1" \
+  --kubernetes-helper-image "gitlab/gitlab-runner-helper:arm64-v16.11.1" \
   --kubernetes-service-account "gitlab-runner" \
   --tag-list "kubernetes" \
   --run-untagged="true" \

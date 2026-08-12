@@ -62,36 +62,15 @@ if [ ! -f "$AUDIT_LOG_FILE" ]; then
     chmod 640 "$AUDIT_LOG_FILE"
 fi
 
-# Check if mount already exists
-if minikube ssh "test -d /host-home && test -f /host-home/audit.log" 2>/dev/null; then
-    echo -e "${GREEN}✓ Audit log already mounted in Minikube${NC}"
+# Verify /host-home mount is available (mounted at minikube start via --mount flag)
+echo -e "${BLUE}Verifying /host-home mount in Minikube...${NC}"
+if minikube ssh "test -d /host-home" 2>/dev/null; then
+    echo -e "${GREEN}✓ Home directory available at /host-home in Minikube${NC}"
 else
-    echo -e "${YELLOW}Mounting $AUDIT_LOG_DIR to /host-home in Minikube...${NC}"
-    # Kill any existing mount process
-    pkill -f "minikube mount.*host-home" 2>/dev/null || true
-    sleep 1
-    
-    # Start mount in background
-    nohup minikube mount "$AUDIT_LOG_DIR:/host-home" > /tmp/minikube-mount.log 2>&1 &
-    MOUNT_PID=$!
-    
-    # Wait for mount to be ready (max 30 seconds)
-    echo -e "${YELLOW}Waiting for mount to be ready...${NC}"
-    for i in {1..30}; do
-        if minikube ssh "test -f /host-home/audit.log" 2>/dev/null; then
-            echo -e "${GREEN}✓ Audit log mounted successfully${NC}"
-            break
-        fi
-        if [ $i -eq 30 ]; then
-            echo -e "${RED}ERROR: Mount failed to become ready${NC}"
-            echo "Check /tmp/minikube-mount.log for details"
-            exit 1
-        fi
-        sleep 1
-    done
-    
-    echo -e "${GREEN}✓ Mount process running (PID: $MOUNT_PID)${NC}"
-    echo -e "${YELLOW}Note: Mount will persist until Minikube is stopped${NC}"
+    echo -e "${RED}ERROR: /host-home is not mounted in minikube.${NC}"
+    echo -e "${YELLOW}The mount is configured at minikube start time (--mount flag).${NC}"
+    echo -e "${YELLOW}Run: minikube delete && make start-minikube${NC}"
+    exit 1
 fi
 
 # Use master-demo namespace

@@ -134,59 +134,33 @@ if check_vault_telemetry; then
     echo -e "${YELLOW}Note: Vault token will be created via userpass authentication${NC}"
 fi
 
-# Mount home directory into minikube
-echo -e "\n${GREEN}Mounting home directory into minikube...${NC}"
-
-# Check if minikube is running
+# Verify minikube is running and mount is available
 if ! minikube status | grep -q "host: Running"; then
     echo -e "${RED}ERROR: Minikube is not running${NC}"
     exit 1
 fi
 
-# Kill any existing mount processes (they may be stale from previous minikube instance)
-EXISTING_MOUNT=$(pgrep -f "minikube mount.*home.*host-home" || true)
-if [ -n "$EXISTING_MOUNT" ]; then
-    echo -e "${YELLOW}Killing stale mount process (PID: $EXISTING_MOUNT)...${NC}"
-    kill $EXISTING_MOUNT 2>/dev/null || true
-    sleep 2
-fi
-
-# Start fresh mount
-echo -e "${BLUE}Starting minikube mount in background...${NC}"
-nohup minikube mount $HOME:/host-home --gid=1000 --uid=1000 > /tmp/minikube-mount.log 2>&1 &
-MOUNT_PID=$!
-echo -e "${YELLOW}Waiting for mount to be ready...${NC}"
-
-# Wait for mount to be ready (check log for success message)
-MAX_WAIT=30
-WAIT_COUNT=0
-while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
-    if grep -q "Successfully mounted" /tmp/minikube-mount.log 2>/dev/null; then
-        echo -e "${GREEN}✓ Home directory mounted at /host-home in minikube${NC}"
-        echo -e "${YELLOW}Note: The mount process must stay running (PID: $MOUNT_PID)${NC}"
-        break
-    fi
-    sleep 1
-    WAIT_COUNT=$((WAIT_COUNT + 1))
-done
-
-if [ $WAIT_COUNT -eq $MAX_WAIT ]; then
-    echo -e "${RED}Mount did not complete within ${MAX_WAIT} seconds${NC}"
-    echo -e "${YELLOW}Check /tmp/minikube-mount.log for details:${NC}"
-    tail -20 /tmp/minikube-mount.log 2>/dev/null || true
+# Verify /host-home mount is available (mounted at minikube start via --mount flag)
+echo -e "\n${GREEN}Verifying /host-home mount in minikube...${NC}"
+if minikube ssh "test -d /host-home" 2>/dev/null; then
+    echo -e "${GREEN}✓ Home directory available at /host-home in minikube${NC}"
+else
+    echo -e "${RED}ERROR: /host-home is not mounted in minikube.${NC}"
+    echo -e "${YELLOW}The mount is configured at minikube start time (--mount flag).${NC}"
+    echo -e "${YELLOW}Run: minikube delete && make start-minikube${NC}"
     exit 1
 fi
 
-# Build Docker image for exporter
-echo -e "\n${GREEN}Building vault-audit-exporter Docker image...${NC}"
+# Build container image for exporter
+echo -e "\n${GREEN}Building vault-audit-exporter container image...${NC}"
 cd audit-monitoring/exporter
-eval $(minikube docker-env)
-docker build -t vault-audit-exporter:latest . || {
-    echo -e "${RED}Failed to build Docker image${NC}"
+eval $(minikube podman-env)
+podman build -t vault-audit-exporter:latest . || {
+    echo -e "${RED}Failed to build image${NC}"
     exit 1
 }
 cd ../..
-echo -e "${GREEN}✓ Docker image built successfully${NC}"
+echo -e "${GREEN}✓ Image built successfully${NC}"
 
 # Deploy Kubernetes resources
 echo -e "\n${GREEN}Deploying Kubernetes resources...${NC}"

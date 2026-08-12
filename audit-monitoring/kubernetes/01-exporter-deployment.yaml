@@ -17,8 +17,8 @@ spec:
     spec:
       containers:
       - name: exporter
-        image: vault-audit-exporter:latest
-        imagePullPolicy: Never  # Use local image in minikube
+        image: localhost/vault-audit-exporter:latest
+        imagePullPolicy: Never  # Use local image built in minikube via podman build
         ports:
         - containerPort: 9091
           name: metrics
