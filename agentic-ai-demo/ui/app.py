@@ -202,9 +202,23 @@ def chat():
         return jsonify({'error': 'Message is required'}), 400
     
     try:
-        # Get token from session
-        token = session.get('token')
+        import jwt as pyjwt
+        from datetime import timezone
         user_id = session.get('user_id')
+
+        # Refresh the JWT if it has expired or is close to expiry (within 5 minutes)
+        token = session.get('token')
+        try:
+            claims = pyjwt.decode(token, options={"verify_signature": False})
+            exp = claims.get('exp', 0)
+            now = datetime.now(timezone.utc).timestamp()
+            if exp - now < 300:  # less than 5 minutes remaining
+                token = generate_jwt_token(user_id, session.get('groups', []))
+                session['token'] = token
+        except Exception:
+            # If we can't decode the token at all, regenerate it
+            token = generate_jwt_token(user_id, session.get('groups', []))
+            session['token'] = token
         
         # Call AI agent with token in body (as expected by FastAPI model)
         response = requests.post(

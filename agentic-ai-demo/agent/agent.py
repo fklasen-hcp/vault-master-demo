@@ -41,6 +41,7 @@ VAULT_ADDR = os.getenv("VAULT_ADDR", "https://host.minikube.internal:8200")
 VAULT_NAMESPACE = os.getenv("VAULT_NAMESPACE", "master-demo")
 VAULT_SKIP_VERIFY = os.getenv("VAULT_SKIP_VERIFY", "true").lower() == "true"
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama.agentic-demo.svc.cluster.local:11434")
+JWT_SECRET = os.getenv("JWT_SECRET", "demo-secret-key-change-in-production")
 
 # Fetch JWT public key from Vault for token validation
 JWT_PUBLIC_KEY = None
@@ -114,8 +115,11 @@ def validate_user_token(token: str) -> Dict[str, Any]:
                 payload = jwt.decode(token, JWT_PUBLIC_KEY, algorithms=["RS256"],
                                    audience="vault", issuer="agentic-demo-ui")
                 logger.info("Token validated with RS256")
+            except jwt.ExpiredSignatureError:
+                # Expired tokens are never valid — don't fall back to HMAC
+                raise
             except jwt.InvalidTokenError as e:
-                # If RS256 fails, try HMAC as fallback
+                # Non-expiry RS256 failure (e.g. wrong key): try HMAC fallback
                 logger.warning(f"RS256 validation failed ({e}), trying HMAC fallback")
                 payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"],
                                    options={"verify_aud": False, "verify_iss": False})
@@ -281,7 +285,7 @@ You can help users list products or add new products to the database."""
                 "prompt": f"{system_prompt}\n\nUser: {prompt}\nAssistant:",
                 "stream": False
             },
-            timeout=30.0
+            timeout=120.0  # Ollama may need time to reload the model after idle eviction
         )
         
         if response.status_code != 200:

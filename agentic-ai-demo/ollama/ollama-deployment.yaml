@@ -71,6 +71,8 @@ spec:
           value: "0.0.0.0:11434"
         - name: OLLAMA_ORIGINS
           value: "*"
+        - name: OLLAMA_KEEP_ALIVE
+          value: "-1"  # Keep model loaded in memory indefinitely (never evict after idle)
         volumeMounts:
         - name: ollama-models
           mountPath: /root/.ollama

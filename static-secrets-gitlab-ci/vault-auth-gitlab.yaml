@@ -8,9 +8,9 @@ apiVersion: secrets.hashicorp.com/v1beta1
 kind: VaultAuth
 metadata:
   name: gitlab-auth
-  namespace: gitlab-demo
+  namespace: gitlab-demo #K8S namespace
 spec:
-  namespace: master-demo
+  namespace: master-demo #Vault namespace
   method: kubernetes
   mount: master-demo-auth
   kubernetes:

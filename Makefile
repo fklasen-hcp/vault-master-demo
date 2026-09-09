@@ -1035,6 +1035,44 @@ spire-server-logs:
 	@echo ""
 	@kubectl logs -n agentic-demo -l app=spire-server -f --tail=50
 
+.PHONY: deploy-agentic-agent
+deploy-agentic-agent:
+	$(call header,$@)
+	@echo "Updating AI agent ConfigMap from agent.py..."
+	@kubectl create configmap ai-agent-app \
+		--from-file=agent.py=agentic-ai-demo/agent/agent.py \
+		-n agentic-demo \
+		--dry-run=client -o yaml | kubectl apply -f -
+	@echo "Bouncing AI agent pod to pick up new code..."
+	@kubectl delete pod -n agentic-demo -l app=ai-agent --ignore-not-found=true
+	@kubectl wait --for=condition=ready pod -l app=ai-agent -n agentic-demo --timeout=120s
+	@echo "✓ AI agent updated"
+
+.PHONY: update-agentic
+update-agentic:
+	$(call header,$@)
+	@echo "Updating Ollama deployment (e.g. KEEP_ALIVE setting)..."
+	@kubectl apply -f agentic-ai-demo/ollama/ollama-deployment.yaml
+	@echo "Updating AI agent ConfigMap from agent.py..."
+	@kubectl create configmap ai-agent-app \
+		--from-file=agent.py=agentic-ai-demo/agent/agent.py \
+		-n agentic-demo \
+		--dry-run=client -o yaml | kubectl apply -f -
+	@echo "Bouncing AI agent pod..."
+	@kubectl delete pod -n agentic-demo -l app=ai-agent --ignore-not-found=true
+	@echo "Updating UI ConfigMap from app.py..."
+	@kubectl create configmap agentic-ui-app \
+		--from-file=app.py=agentic-ai-demo/ui/app.py \
+		-n agentic-demo \
+		--dry-run=client -o yaml | kubectl apply -f -
+	@echo "Bouncing UI pod..."
+	@kubectl delete pod -n agentic-demo -l app=agentic-demo-ui --ignore-not-found=true
+	@echo "Waiting for AI agent to be ready..."
+	@kubectl wait --for=condition=ready pod -l app=ai-agent -n agentic-demo --timeout=120s || true
+	@echo "Waiting for UI to be ready..."
+	@kubectl wait --for=condition=ready pod -l app=agentic-demo-ui -n agentic-demo --timeout=120s || true
+	@echo "✓ Agentic demo updated"
+
 .PHONY: build-agentic-ui
 build-agentic-ui:
 	$(call header,$@)
