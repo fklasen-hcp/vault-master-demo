@@ -395,6 +395,18 @@ setup-controlgroups-vault:
 	@chmod +x scripts/setup/setup-controlgroups-vault.sh
 	@./scripts/setup/setup-controlgroups-vault.sh
 
+.PHONY: setup-policy-governance
+setup-policy-governance:
+	$(call header,$@)
+	@chmod +x scripts/setup/setup-policy-governance.sh
+	@./scripts/setup/setup-policy-governance.sh
+
+.PHONY: seed-controlgroups-entities
+seed-controlgroups-entities:
+	$(call header,$@)
+	@chmod +x scripts/setup/seed-controlgroups-entities.sh
+	@./scripts/setup/seed-controlgroups-entities.sh
+
 .PHONY: deploy-controlgroups-demo
 deploy-controlgroups-demo:
 	$(call header,$@)
@@ -406,7 +418,12 @@ deploy-controlgroups-demo:
 	@kubectl apply -f control-groups/service.yaml -n controlgroups-demo
 	@kubectl apply -f control-groups/app-deployment.yaml -n controlgroups-demo
 	@sleep 10
-	@echo "Control Groups Demo deployed!"
+	@echo "Waiting for controlgroups-demo pod to be ready..."
+	@kubectl rollout status deployment/controlgroups-demo-ui -n controlgroups-demo --timeout=60s || true
+	@echo "Seeding Vault identity groups for Control Groups..."
+	@chmod +x scripts/setup/seed-controlgroups-entities.sh
+	@./scripts/setup/seed-controlgroups-entities.sh || true
+	@echo "Control Groups Demo deployed and seeded!"
 
 .PHONY: controlgroups-port-forward
 controlgroups-port-forward:

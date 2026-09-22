@@ -76,9 +76,22 @@ if vault namespace list 2>/dev/null | grep -q "master-demo/"; then
     vault auth disable master-demo-spiffe 2>/dev/null && echo "✓ SPIFFE auth disabled" || echo "  SPIFFE auth not found"
     vault auth disable userpass 2>/dev/null && echo "✓ Userpass auth disabled" || echo "  Userpass auth not found"
     
+    # Delete Sentinel EGP policy
+    echo -e "${YELLOW}Deleting Sentinel EGP policies...${NC}"
+    vault delete sys/policies/egp/master-demo-sentinel-no-root-wildcard 2>/dev/null && echo "✓ Sentinel EGP deleted" || echo "  Sentinel EGP not found"
+
+    # Delete policy-governance identity group
+    echo -e "${YELLOW}Deleting policy-governance identity group...${NC}"
+    vault delete identity/group/name/policy-approvers 2>/dev/null && echo "✓ policy-approvers group deleted" || echo "  policy-approvers group not found"
+
+    # Delete policy-governance Kubernetes auth roles
+    echo -e "${YELLOW}Deleting policy-governance auth roles...${NC}"
+    vault delete auth/master-demo-auth/role/master-demo-auth-role-policy-admin 2>/dev/null && echo "✓ policy-admin auth role deleted" || echo "  policy-admin auth role not found"
+    vault delete auth/master-demo-auth/role/master-demo-auth-role-policy-approver 2>/dev/null && echo "✓ policy-approver auth role deleted" || echo "  policy-approver auth role not found"
+
     # Delete all policies
     echo -e "${YELLOW}Deleting policies in master-demo namespace...${NC}"
-    for policy in master-demo-webapp master-demo-auth-policy-db master-demo-pki-issuer master-demo-auth-policy-operator master-demo-admin master-demo-gitlab-policy master-demo-controlgroups-user master-demo-controlgroups-ops master-demo-controlgroups-security master-demo-agentic-base master-demo-agentic-readonly master-demo-agentic-admin master-demo-agentic-alice master-demo-agentic-bob master-demo-policy-agentic-ui; do
+    for policy in master-demo-webapp master-demo-auth-policy-db master-demo-pki-issuer master-demo-auth-policy-operator master-demo-admin master-demo-gitlab-policy master-demo-controlgroups-user master-demo-controlgroups-ops master-demo-controlgroups-security master-demo-policy-admin master-demo-policy-approver master-demo-agentic-base master-demo-agentic-readonly master-demo-agentic-admin master-demo-agentic-alice master-demo-agentic-bob master-demo-policy-agentic-ui; do
         vault policy delete "$policy" 2>/dev/null && echo "✓ Policy $policy deleted" || true
     done
     

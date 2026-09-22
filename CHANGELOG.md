@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Control Groups demo → Policy Governance demo**: Extended and rebranded the existing `controlgroups-demo` (port 10005) into a full policy governance showcase with two new demo panels above the existing secret-access flow.
+  - **Demo 1 — Sentinel Policy Block**: A Sentinel EGP (`master-demo-sentinel-no-root-wildcard`) attached to `sys/policies/acl/*` at `hard-mandatory` enforcement blocks any policy write containing a root wildcard `path "*"`. The left panel shows the live rejection in real time.
+  - **Demo 2 — Control Group Policy Gate**: Every write to `sys/policies/acl/master-demo-policy-*` is gated by a real Vault Control Group stanza. The "Create Policy" button freezes until the admin approves in the unified Admin Panel; the write then completes using the real CG accessor token.
+  - **Unified Admin Panel**: All pending CG requests (both Policy Write and Secret Read) appear in one list with type badges (`[Policy Write]` / `[Secret Read]`). Approve dispatches to the correct Vault handler by request type.
+  - **Combined Audit Log**: Single audit log replaces the two separate logs; records all events from both flows.
+  - **All CG calls are real**: The previously simulated `request_secret` / `approve` / `unwrap` flow is replaced with real `sys/control-group/authorize` calls and accessor-token re-attempts throughout.
+  - **New Vault resources**: `master-demo-sentinel-no-root-wildcard` (EGP), `master-demo-policy-admin` (ACL policy with CG stanza), `master-demo-policy-approver` (ACL policy), `policy-approvers` (identity group), plus two new K8s auth roles bound to the existing `controlgroups-demo-app` service account.
+  - No new Kubernetes namespace or pod — everything runs in the existing `controlgroups-demo` namespace on port 10005.
+  - Automatic entity group seeding in `deploy-controlgroups-demo` target via `scripts/setup/seed-controlgroups-entities.sh`.
+  - Files changed: `control-groups/app.py`, `scripts/setup/setup-controlgroups-vault.sh`, `scripts/setup/setup-policy-governance.sh`, `scripts/setup/seed-controlgroups-entities.sh`, `scripts/cleanup/cleanup-all.sh`, `Makefile`, `README.md`
+
 ## [1.4.0] - 2026-08-12
 
 ### Changed

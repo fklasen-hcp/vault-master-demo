@@ -971,69 +971,56 @@ The setup script creates:
 - **E-commerce**: Protect customer PII
 - **SaaS**: Multi-tenant data encryption
 
-### 5. Control Groups Demo
+### 5. Policy Governance Demo
 
-**Vault Enterprise Feature**: Multi-party authorization for sensitive secrets
+**Vault Enterprise Features**: Sentinel EGP policy enforcement + Control Groups multi-party authorization
 
-This demo showcases Vault's Control Groups feature, which requires multiple authorized users to approve access to sensitive secrets before they can be retrieved. It implements a "two-person rule" or "four-eyes principle" for secret access.
-
-![Control Groups Demo](images/control-groups.png)
+This demo showcases two Vault Enterprise governance features in a single UI. It demonstrates how organisations can enforce policy-creation rules and require multi-party approval for sensitive policy changes.
 
 **Architecture:**
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ Control Groups Demo UI (Flask)                                  │
+│ Policy Governance UI (Flask) — http://localhost:10005           │
+│                                                                  │
+│ ┌──────────────────────────┬──────────────────────────────────┐ │
+│ │ Sentinel Policy Block    │ Control Group Policy Gate        │ │
+│ │ Root wildcard HCL        │ Partial wildcard HCL             │ │
+│ │ [Create Policy] → DENIED │ [Create Policy] → FROZEN         │ │
+│ └──────────────────────────┴──────────────────────────────────┘ │
 │                                                                  │
 │ ┌─────────────────────────────────────────────────────────────┐ │
-│ │ Interactive Flow Diagram        │  Real-time Audit Log      │ │
-│ │ Request → Control Group →       │  [--:--:--] Event         │ │
-│ │ Approve → Unwrap                │  [--:--:--] Event         │ │
+│ │ Combined Audit Log (Sentinel + CG events)                   │ │
 │ └─────────────────────────────────────────────────────────────┘ │
 │                                                                  │
-│ ┌──────────────────────┬──────────────────────────────────────┐ │
-│ │ User Panel           │ Admin Panel (Role Switcher)          │ │
-│ │ - Request secrets    │ - Ops Team / Security Team           │ │
-│ │ - View status        │ - Approve/Deny requests              │ │
-│ │ - Unwrap approved    │ - View pending approvals             │ │
-│ │ - Clear requests     │                                      │ │
-│ └──────────────────────┴──────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────────┐
-│ Vault Control Groups                                            │
-│ - Non-critical secrets: 1/2 approval (ops OR security)         │
-│ - Critical secrets: 2/2 approvals (ops AND security)           │
-│ - Wrapped responses with authorization workflow                │
+│ ┌──────────────────────────────────────────────────────────────┐│
+│ │ Control Groups Flow Diagram  │  User Panel (secret access)  ││
+│ └──────────────────────────────────────────────────────────────┘│
+│                                                                  │
+│ ┌─────────────────────────────────────────────────────────────┐ │
+│ │ Unified Admin Panel                                         │ │
+│ │ [Policy Write] and [Secret Read] requests with type badges  │ │
+│ │ Approve/Deny dispatches to correct Vault handler            │ │
+│ └─────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+**Demo 1 — Sentinel Policy Block:**
+A Sentinel EGP (`master-demo-sentinel-no-root-wildcard`) is attached to `sys/policies/acl/*` at `hard-mandatory` enforcement level. Any policy write containing `path "*"` (root wildcard) is rejected before it reaches Vault storage. The UI shows the live Sentinel rejection message.
+
+**Demo 2 — Control Group Policy Gate:**
+Every write to `sys/policies/acl/master-demo-policy-*` is gated by a Control Group stanza requiring 1 approval from the `policy-approvers` identity group. The "Create Policy" button freezes while the request is pending. The admin approves in the unified Admin Panel and the write completes automatically using the real CG accessor token.
+
+**Secret Access (existing Control Groups demo, preserved below):**
+- `dev/*` secrets: 1/2 approval (ops OR security)
+- `prod/*` secrets: 2/2 approvals (ops AND security)
+- All CG flows use real Vault `sys/control-group/authorize` calls and re-attempt with the accessor token on completion — nothing is simulated
+
 **Features:**
-- **Interactive Flow Diagram**: Visual 4-step workflow with real-time highlighting
-  - Step 1: Request (user requests secret)
-  - Step 2: Control Group (authorizers assigned)
-  - Step 3: Approve (required approvals)
-  - Step 4: Unwrap (access granted)
-- **Real-time Audit Log**: Live event tracking showing all Control Groups activities
-- **User Panel**: Request access to secrets, view request status, unwrap approved secrets, clear all requests
-- **Admin Panel**: Role switcher (Ops/Security), approve or deny pending requests
-- **Two Approval Tiers**:
-  - `dev/*` secrets: Require 1 of 2 approvals (ops OR security)
-  - `prod/*` secrets: Require 2 of 2 approvals (ops AND security)
-- **Visual Status Indicators**: Pending (⏳), Approved (✓), Denied (✗)
-
-**Demo Secrets:**
-- `secret/data/dev/api-key` - Development API key (1/2 approval)
-- `secret/data/dev/database` - Development database credentials (1/2 approval)
-- `secret/data/prod/db-password` - Production database password (2/2 approvals)
-- `secret/data/prod/encryption-key` - Production encryption key (2/2 approvals)
-
-**Workflow:**
-1. **User requests secret**: Select a secret path and click "Request Access"
-2. **Request created**: User sees pending request with approval status
-3. **Admin approves**: Switch to Ops or Security role and approve the request
-4. **Additional approval** (for prod secrets): Switch to the other role and approve again
-5. **User unwraps**: Once approved, click "Unwrap Secret" to retrieve the actual secret
+- **Sentinel Block**: Hard-mandatory EGP rejects root wildcard policies in real time
+- **CG Policy Gate**: Policy writes frozen and completed only after real Vault CG approval
+- **Unified Admin Panel**: Type-badged cards for both Policy Write and Secret Read CG requests
+- **Combined Audit Log**: All events from both flows in one log
+- **Real Vault CG calls**: `sys/control-group/authorize` + accessor re-attempt throughout
 
 **Access:**
 ```bash
@@ -1045,7 +1032,7 @@ make controlgroups-port-forward
 
 **Setup (included in master-demo):**
 ```bash
-# Setup Vault configuration
+# Setup Vault configuration (includes Sentinel EGP + policy governance)
 make setup-controlgroups-vault
 
 # Deploy the demo
@@ -1065,9 +1052,10 @@ make clean-controlgroups
 ```
 
 **Vault Configuration:**
-- **Policies**: `master-demo-controlgroups-user`, `master-demo-controlgroups-ops`, `master-demo-controlgroups-security`
-- **Identity Groups**: `ops-team`, `security-team`
-- **Kubernetes Auth Roles**: Separate roles for user, ops, and security personas
+- **Sentinel EGP**: `master-demo-sentinel-no-root-wildcard` — blocks root wildcard path policies
+- **Policies**: `master-demo-controlgroups-user`, `master-demo-controlgroups-ops`, `master-demo-controlgroups-security`, `master-demo-policy-admin`, `master-demo-policy-approver`
+- **Identity Groups**: `ops-team`, `security-team`, `policy-approvers`
+- **Kubernetes Auth Roles**: user, ops, security, policy-admin, policy-approver (all bound to `controlgroups-demo-app` SA)
 - **Control Group Factors**: Configured per secret path with different approval requirements
 
 **Use Cases:**
