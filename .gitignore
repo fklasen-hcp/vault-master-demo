@@ -19,6 +19,7 @@ venv/
 # Secrets
 *.key
 *.pem
+*.hclic
 .vault-token
 
 # Made with Bob

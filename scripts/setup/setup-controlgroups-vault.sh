@@ -226,9 +226,14 @@ echo -e "${GREEN}✓ Security auth role configured${NC}"
 echo -e "\n${BLUE}Step 4b: Seeding entities into ops-team and security-team groups${NC}"
 
 echo -e "${YELLOW}Performing seed logins to create entities in Vault...${NC}"
-ENTITY_ID=$(kubectl exec -n controlgroups-demo \
-    "$(kubectl get pods -n controlgroups-demo -l app=controlgroups-demo-ui -o jsonpath='{.items[0].metadata.name}')" \
-    -- python3 -c "
+# Retry up to 10 times (20 seconds apart) in case the pod is still initialising
+ENTITY_ID=""
+for attempt in $(seq 1 10); do
+    POD_NAME=$(kubectl get pods -n controlgroups-demo -l app=controlgroups-demo-ui \
+        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+    if [ -n "$POD_NAME" ]; then
+        ENTITY_ID=$(kubectl exec -n controlgroups-demo "$POD_NAME" \
+            -- python3 -c "
 import hvac
 client = hvac.Client(url='https://host.minikube.internal:8200', namespace='master-demo', verify=False)
 with open('/var/run/secrets/kubernetes.io/serviceaccount/token') as f:
@@ -236,9 +241,18 @@ with open('/var/run/secrets/kubernetes.io/serviceaccount/token') as f:
 r = client.auth.kubernetes.login(role='master-demo-auth-role-controlgroups-ops', jwt=jwt, mount_point='master-demo-auth')
 print(r['auth']['entity_id'])
 " 2>/dev/null)
+    fi
+    if [ -n "$ENTITY_ID" ]; then
+        echo -e "${GREEN}✓ Entity ID retrieved: $ENTITY_ID${NC}"
+        break
+    fi
+    echo -e "${YELLOW}Attempt $attempt/10: pod not ready yet, waiting 20s...${NC}"
+    sleep 20
+done
 
 if [ -z "$ENTITY_ID" ]; then
-    echo -e "${RED}ERROR: Could not retrieve entity ID. Is the controlgroups-demo pod running?${NC}"
+    echo -e "${RED}ERROR: Could not retrieve entity ID after 10 attempts. Control group approvals will not work.${NC}"
+    echo -e "${YELLOW}Re-run: make setup-controlgroups-vault${NC}"
 else
     echo -e "${YELLOW}Adding entity $ENTITY_ID to ops-team...${NC}"
     vault write identity/group/name/ops-team \

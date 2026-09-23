@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [1.4.3] - 2026-09-23
+
+### Fixed
+- **`host.minikube.internal` DNS (Podman driver)**: The Podman driver sets `host.minikube.internal` to a link-local IPv6 address (`fe80::1`) that is unreachable from pods, silently breaking all pod-to-Vault communication. `start-minikube` and `all-recover` now detect the real host gateway IP from `host.containers.internal` and patch both the Minikube node `/etc/hosts` and the CoreDNS ConfigMap with the correct IP, then restart CoreDNS. Files: `Makefile`, `scripts/setup/recover-after-reboot.sh`
+
+- **PostgreSQL PVC hostPath permissions**: Minikube's hostPath provisioner creates PVC directories owned by `root`, causing the Bitnami PostgreSQL pod (UID 1001) to crash-loop on a fresh deploy. `install-postgresql-pod` now sets `podSecurityContext.fsGroup=1001` and `containerSecurityContext.runAsUser=1001` on the Helm install and runs `minikube ssh "sudo chown -R 1001:1001 <hostPath>"` after the PVC is bound. File: `Makefile`
+
+- **GitLab PVC hostPath permissions**: Same root-ownership problem as PostgreSQL. `setup-gitlab-demo.sh` now waits for the `gitlab-data` PVC to bind, looks up the hostPath dynamically, and runs `minikube ssh "sudo chmod 777 <hostPath>"` before the pod creation wait loop. File: `scripts/setup/setup-gitlab-demo.sh`
+
+- **Prometheus & Grafana PVC hostPath permissions**: Prometheus (UID 65534/nobody) and Grafana (UID 472) failed to start on fresh deploys due to root-owned hostPath directories. Setup script now pre-creates the hostPath directories with correct ownership via `minikube ssh`. Prometheus deployment YAML gains a `securityContext` block (`fsGroup: 65534`, `runAsUser: 65534`). Files: `scripts/setup/setup-audit-monitoring.sh`, `audit-monitoring/kubernetes/03-prometheus-deployment.yaml`
+
+- **`make all-recover` missing audit device + port-forward restore**: After a reboot the `master-demo-audit/` file audit device was silently dropped and port-forwards had to be restored manually. `all-recover` now calls `enable-audit-log-rotation` and `port-forward-all` at the end of recovery. File: `Makefile`
+
+- **Vault setup script — token validation + namespace-scoped auth list**: Three improvements to `setup-local-vault.sh`: (1) `VAULT_TOKEN` missing error now shows the exact `jq` command to source the token from `~/vault-init.json`; (2) `vault token lookup` fail-fast check added after the connectivity check so an expired token is caught before mid-script failures; (3) the `vault auth list` check inside the auth-enable block now runs with `VAULT_NAMESPACE=master-demo` to avoid false "auth not found" errors that caused the auth backend to be unnecessarily re-enabled on every run. File: `scripts/setup/setup-local-vault.sh`
+
+- **Agentic AI — JWT auto-refresh removed**: Removed the fragile inline `import jwt as pyjwt` and "refresh within 5 minutes of expiry" heuristic from the `/api/chat` route. Token lifecycle is managed at login, not inside the chat handler. File: `agentic-ai-demo/ui/app.py`
+
+- **Agentic AI — log entry modal**: All log entries (DB logs, Vault audit logs, JWT claims) now open a modal overlay on click showing the full entry at 120% font size with syntax highlighting preserved. Supports Escape key and click-outside-to-close. File: `agentic-ai-demo/ui/app.py`
+
+- **VSO `gitlab-kv-secret` stale scaffold comment**: Confirmed removed — no `rolloutRestartTargets` comment block present. File: `static-secrets-gitlab-ci/gitlab-static-secret.yaml`
+
+- **`.gitignore` — `*.hclic` added**: Prevents accidental commit of a Vault Enterprise license file. File: `.gitignore`
+
+- **Control Groups entity seeding race condition**: The entity ID lookup in `setup-controlgroups-vault.sh` had no retry logic. If the pod was not fully ready when the script ran, the entity ID was silently empty, leaving the ops-team and security-team groups with no members — causing every control group approval to fail with "further authorization required". The lookup now retries up to 10 times (20 seconds apart) with a clear recovery message if all attempts fail. File: `scripts/setup/setup-controlgroups-vault.sh`
+
+- **Agentic AI — Ollama model not ready before agent starts**: `ollama pull` was swallowing errors with a fallback echo, allowing the AI agent to deploy before the model existed. The pull now fails hard on error. A post-pull verification loop (up to 30 × 10s) confirms `ollama list` shows `llama3.2:1b` before the agent deployment begins. File: `Makefile`
+
+---
+
+## [1.4.2] - 2026-09-22
+
 ### Changed
 - **Control Groups demo → Policy Governance demo**: Extended and rebranded the existing `controlgroups-demo` (port 10005) into a full policy governance showcase with two new demo panels above the existing secret-access flow.
   - **Demo 1 — Sentinel Policy Block**: A Sentinel EGP (`master-demo-sentinel-no-root-wildcard`) attached to `sys/policies/acl/*` at `hard-mandatory` enforcement blocks any policy write containing a root wildcard `path "*"`. The left panel shows the live rejection in real time.
@@ -18,6 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - No new Kubernetes namespace or pod — everything runs in the existing `controlgroups-demo` namespace on port 10005.
   - Automatic entity group seeding in `deploy-controlgroups-demo` target via `scripts/setup/seed-controlgroups-entities.sh`.
   - Files changed: `control-groups/app.py`, `scripts/setup/setup-controlgroups-vault.sh`, `scripts/setup/setup-policy-governance.sh`, `scripts/setup/seed-controlgroups-entities.sh`, `scripts/cleanup/cleanup-all.sh`, `Makefile`, `README.md`
+
+---
 
 ## [1.4.0] - 2026-08-12
 
@@ -224,7 +259,9 @@ When making changes:
 
 ---
 
-[Unreleased]: https://github.com/yourusername/master-demo/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/yourusername/master-demo/compare/v1.4.3...HEAD
+[1.4.3]: https://github.com/yourusername/master-demo/compare/v1.4.2...v1.4.3
+[1.4.2]: https://github.com/yourusername/master-demo/compare/v1.4.0...v1.4.2
 [1.4.0]: https://github.com/yourusername/master-demo/compare/v1.3.3...v1.4.0
 [1.1.0]: https://github.com/yourusername/master-demo/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/yourusername/master-demo/releases/tag/v1.0.0

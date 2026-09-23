@@ -84,6 +84,13 @@ kubectl create namespace gitlab-demo 2>/dev/null || echo "Namespace already exis
 echo -e "\n${GREEN}Deploying lightweight GitLab manifest...${NC}"
 kubectl apply -f static-secrets-gitlab-ci/manifests/gitlab-simple.yaml
 
+echo -e "\n${GREEN}Waiting for GitLab PVC to be bound...${NC}"
+kubectl wait --for=jsonpath='{.status.phase}'=Bound pvc/gitlab-data -n gitlab-demo --timeout=5m
+PV_NAME=$(kubectl get pvc gitlab-data -n gitlab-demo -o jsonpath='{.spec.volumeName}')
+HOST_PATH=$(kubectl get pv "$PV_NAME" -o jsonpath='{.spec.hostPath.path}')
+minikube ssh "sudo chmod 777 $HOST_PATH"
+echo -e "${GREEN}Set permissions on GitLab hostPath: $HOST_PATH${NC}"
+
 echo -e "\n${GREEN}Waiting for GitLab pod to be created...${NC}"
 for i in $(seq 1 90); do
     if kubectl get pods -n gitlab-demo -l app=gitlab --no-headers 2>/dev/null | grep -q .; then

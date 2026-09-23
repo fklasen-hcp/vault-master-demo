@@ -51,6 +51,18 @@ start-minikube:
 			exit 1; \
 		}; \
 		sleep 5; \
+		echo "Fixing host.minikube.internal DNS (Podman driver)..."; \
+		HOST_GW_IP=$$(minikube ssh "grep host.containers.internal /etc/hosts | awk '{print \$$1}' | head -1" 2>/dev/null | tr -d '[:space:]'); \
+		if [ -n "$$HOST_GW_IP" ]; then \
+			echo "  Detected host gateway IP: $$HOST_GW_IP"; \
+			minikube ssh "sudo sed -i '/host.minikube.internal/d' /etc/hosts && echo $$HOST_GW_IP host.minikube.internal | sudo tee -a /etc/hosts" > /dev/null; \
+			kubectl patch configmap coredns -n kube-system --type merge \
+				-p "{\"data\":{\"Corefile\":\".:53 {\\n    errors\\n    health {\\n       lameduck 5s\\n    }\\n    ready\\n    kubernetes cluster.local in-addr.arpa ip6.arpa {\\n       pods insecure\\n       fallthrough in-addr.arpa ip6.arpa\\n       ttl 30\\n    }\\n    prometheus :9153\\n    hosts {\\n      $$HOST_GW_IP host.minikube.internal\\n      fallthrough\\n    }\\n    forward . /etc/resolv.conf {\\n       max_concurrent 1000\\n    }\\n    cache 30\\n    loop\\n    reload\\n    loadbalance\\n}\\n\"}}" > /dev/null; \
+			kubectl rollout restart deployment/coredns -n kube-system > /dev/null; \
+			echo "  CoreDNS patched and restarted"; \
+		else \
+			echo "  WARNING: Could not detect host gateway IP; skipping DNS patch"; \
+		fi; \
 	fi
 
 
@@ -70,10 +82,14 @@ install-postgresql-pod:
 	@kubectl create ns postgres 2>/dev/null || echo "Namespace postgres already exists"
 	@sleep 2
 	@helm repo add bitnami https://charts.bitnami.com/bitnami 2>/dev/null || echo "Bitnami repo already added"
-	@helm upgrade --install postgres bitnami/postgresql --namespace postgres --set auth.audit.logConnections=true --set auth.postgresPassword=secret-pass
+	@helm upgrade --install postgres bitnami/postgresql --namespace postgres --set auth.audit.logConnections=true --set auth.postgresPassword=secret-pass --set podSecurityContext.fsGroup=1001 --set containerSecurityContext.runAsUser=1001
 	@kubectl wait --for=jsonpath='{.status.phase}'=Running pod --all --namespace postgres --timeout=2m
 ## need a pause to let connection be available - is there a way to test it?
 	@sleep 5
+	@echo "Fixing PVC hostPath ownership for UID 1001 (Bitnami PostgreSQL)..."
+	@PV_NAME=$$(kubectl get pvc data-postgres-postgresql-0 -n postgres -o jsonpath='{.spec.volumeName}'); \
+	 HOST_PATH=$$(kubectl get pv $$PV_NAME -o jsonpath='{.spec.hostPath.path}'); \
+	 minikube ssh "sudo chown -R 1001:1001 $$HOST_PATH"
 
 
 ## Local Vault Setup Targets
@@ -198,6 +214,8 @@ all-recover:
 	$(call header,$@)
 	@chmod +x scripts/setup/recover-after-reboot.sh
 	@./scripts/setup/recover-after-reboot.sh
+	@$(MAKE) enable-audit-log-rotation
+	@$(MAKE) port-forward-all
 
 .PHONY: recover-after-reboot
 recover-after-reboot: all-recover
@@ -916,8 +934,17 @@ deploy-agentic-demo: build-agentic-agent
 	@kubectl apply -f agentic-ai-demo/ollama/
 	@echo "Waiting for Ollama to be ready (this may take a few minutes to pull the image)..."
 	@kubectl wait --for=condition=ready pod -l app=ollama -n agentic-demo --timeout=600s || true
-	@echo "Downloading Ollama model (llama3.2:1b)..."
-	@kubectl exec -n agentic-demo deployment/ollama -- ollama pull llama3.2:1b || echo "Model download failed, will retry on first use"
+	@echo "Downloading Ollama model (llama3.2:1b) — this may take several minutes on first run..."
+	@kubectl exec -n agentic-demo deployment/ollama -- ollama pull llama3.2:1b
+	@echo "Verifying model is loaded and ready..."
+	@for i in $$(seq 1 30); do \
+		if kubectl exec -n agentic-demo deployment/ollama -- ollama list 2>/dev/null | grep -q "llama3.2:1b"; then \
+			echo "✓ Model llama3.2:1b is ready"; \
+			break; \
+		fi; \
+		echo "  Waiting for model to be available ($$i/30)..."; \
+		sleep 10; \
+	done
 	@echo "Creating ConfigMap for AI agent from agent.py..."
 	@kubectl create configmap ai-agent-app --from-file=agent.py=agentic-ai-demo/agent/agent.py -n agentic-demo --dry-run=client -o yaml | kubectl apply -f -
 	@echo "Deploying AI agent..."

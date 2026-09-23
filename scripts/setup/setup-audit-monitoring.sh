@@ -162,6 +162,13 @@ podman build -t vault-audit-exporter:latest . || {
 cd ../..
 echo -e "${GREEN}✓ Image built successfully${NC}"
 
+echo -e "\n${GREEN}Pre-creating PVC directories with correct ownership...${NC}"
+# Prometheus runs as UID 65534 (nobody)
+minikube ssh "sudo mkdir -p /tmp/hostpath-provisioner/audit-monitoring/prometheus-data && sudo chown -R 65534:65534 /tmp/hostpath-provisioner/audit-monitoring/prometheus-data"
+# Grafana runs as UID 472
+minikube ssh "sudo mkdir -p /tmp/hostpath-provisioner/audit-monitoring/grafana-data && sudo chown -R 472:472 /tmp/hostpath-provisioner/audit-monitoring/grafana-data"
+echo -e "${GREEN}✓ PVC directories created with correct ownership${NC}"
+
 # Deploy Kubernetes resources
 echo -e "\n${GREEN}Deploying Kubernetes resources...${NC}"
 

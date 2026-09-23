@@ -195,7 +195,8 @@ This demo suite showcases real-world Vault Enterprise use cases through interact
 - **kubectl** and **helm** installed
 - **jq** - JSON processor for cleanup scripts (`brew install jq` on macOS)
 - **curl**, **base64**, **openssl** - Standard CLI tools (usually pre-installed)
-- **VAULT_TOKEN** environment variable set
+- **VAULT_TOKEN** environment variable set (`export VAULT_TOKEN=$(cat ~/vault-init.json | jq -r '.root_token')`)
+- **python3** — required by the DNS fix in `start-minikube` (pre-installed on macOS)
 
 ### Vault Configuration Requirements
 
@@ -267,13 +268,14 @@ make all-recover
 ```
 
 This script fixes the root cause (stale Kubernetes auth credentials in Vault) and performs a complete recovery:
+- **Fixes `host.minikube.internal` DNS** — re-patches the node `/etc/hosts` and CoreDNS for the Podman driver's IPv6 issue
 - **Reconfigures Vault Kubernetes auth** with fresh credentials from the rebooted cluster
-- Restarts the minikube mount for audit log access
 - Restarts the audit exporter pod
 - Restarts the VSO controller
 - Restarts all demo deployments (GitLab, Dynamic Secrets, PKI)
 - Verifies all VaultAuth resources are working
-- Starts all port-forwards automatically
+- **Re-enables the audit device** (`master-demo-audit/`) so audit logs are restored
+- **Starts all port-forwards** automatically
 
 This is especially important after a minikube reboot, as the Kubernetes service account tokens and certificates become invalid, causing VSO authentication to fail.
 
@@ -284,15 +286,15 @@ This is especially important after a minikube reboot, as the Kubernetes service 
 # 2. Verify Vault is running and unsealed
 vault status
 
-# 3. Start minikube
+# 3. Start minikube (automatically fixes host.minikube.internal DNS for Podman driver)
 minikube start
 
 # 4. Set environment variables
 export VAULT_ADDR=https://127.0.0.1:8200
 export VAULT_SKIP_VERIFY=true
-export VAULT_TOKEN=your-vault-root-token
+export VAULT_TOKEN=$(cat ~/vault-init.json | jq -r '.root_token')
 
-# 5. Recover all services (updates Kubernetes auth, restarts services, starts port-forwards)
+# 5. Recover all services (updates Kubernetes auth, restarts services, restores audit device, starts port-forwards)
 make all-recover
 ```
 
@@ -1930,6 +1932,28 @@ vault write master-demo-pki-issuing/issue/master-demo-cert-issuer common_name="t
 make pki-logs
 ```
 
+### `host.minikube.internal` Unreachable from Pods (Podman Driver)
+
+**Symptoms:**
+- All demos fail to connect to Vault after a fresh `minikube start`
+- VSO logs show `dial tcp: lookup host.minikube.internal: no such host` or connection refused
+- CoreDNS crash-loops with `Unknown directive` errors after running `make all-recover`
+
+**Root Cause:**
+The Podman driver sets `host.minikube.internal` to a link-local IPv6 address (`fe80::1`) in the Minikube node's `/etc/hosts`. This is unreachable from pods. The `start-minikube` and `all-recover` targets both automatically detect the real host gateway IP from `host.containers.internal` and patch both the node `/etc/hosts` and the CoreDNS ConfigMap.
+
+**If CoreDNS crash-loops after patching:**
+```bash
+# Check what's in the CoreDNS ConfigMap
+kubectl get configmap coredns -n kube-system -o jsonpath='{.data.Corefile}'
+
+# If the Corefile is missing the .:53 server block, restore it manually:
+HOST_GW_IP=$(minikube ssh "grep host.containers.internal /etc/hosts | awk '{print \$1}' | head -1" | tr -d '[:space:]')
+kubectl patch configmap coredns -n kube-system --type merge \
+  -p "{\"data\":{\"Corefile\":\".:53 {\n    errors\n    health {\n       lameduck 5s\n    }\n    ready\n    kubernetes cluster.local in-addr.arpa ip6.arpa {\n       pods insecure\n       fallthrough in-addr.arpa ip6.arpa\n       ttl 30\n    }\n    prometheus :9153\n    hosts {\n      $HOST_GW_IP host.minikube.internal\n      fallthrough\n    }\n    forward . /etc/resolv.conf {\n       max_concurrent 1000\n    }\n    cache 30\n    loop\n    reload\n    loadbalance\n}\n\"}}"
+kubectl rollout restart deployment/coredns -n kube-system
+```
+
 ### Minikube IP Changed After Restart
 
 After a minikube restart, the Kubernetes API endpoint and certificates change, causing Vault's Kubernetes auth to fail. Use the automated recovery:
@@ -1958,13 +1982,15 @@ make all-recover
 ```
 
 **What the script does:**
-1. Extracts fresh Kubernetes API endpoint and CA certificate
-2. Generates a new service account token
-3. Reconfigures Vault's Kubernetes auth with the fresh credentials
-4. Restarts VSO controller to pick up the changes
-5. Restarts all demo deployments
-6. Verifies all VaultAuth resources are working
-7. Starts port-forwards
+1. Fixes `host.minikube.internal` DNS (re-patches node `/etc/hosts` and CoreDNS ConfigMap)
+2. Extracts fresh Kubernetes API endpoint and CA certificate
+3. Generates a new service account token
+4. Reconfigures Vault's Kubernetes auth with the fresh credentials
+5. Restarts VSO controller to pick up the changes
+6. Restarts all demo deployments
+7. Verifies all VaultAuth resources are working
+8. Re-enables the `master-demo-audit/` file audit device
+9. Starts all port-forwards
 
 **Manual Recovery (if script fails):**
 

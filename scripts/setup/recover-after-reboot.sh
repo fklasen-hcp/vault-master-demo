@@ -78,6 +78,20 @@ if ! minikube status | grep -q "host: Running"; then
 fi
 print_success "Minikube is running"
 
+# Fix host.minikube.internal DNS (Podman driver sets it to an unreachable IPv6 address)
+print_section "Fixing host.minikube.internal DNS"
+HOST_GW_IP=$(minikube ssh "grep host.containers.internal /etc/hosts | awk '{print \$1}' | head -1" 2>/dev/null | tr -d '[:space:]')
+if [ -n "$HOST_GW_IP" ]; then
+    print_warning "Detected host gateway IP: $HOST_GW_IP"
+    minikube ssh "sudo sed -i '/host.minikube.internal/d' /etc/hosts && echo '$HOST_GW_IP host.minikube.internal' | sudo tee -a /etc/hosts" > /dev/null
+    kubectl patch configmap coredns -n kube-system --type merge \
+        -p "{\"data\":{\"Corefile\":\".:53 {\n    errors\n    health {\n       lameduck 5s\n    }\n    ready\n    kubernetes cluster.local in-addr.arpa ip6.arpa {\n       pods insecure\n       fallthrough in-addr.arpa ip6.arpa\n       ttl 30\n    }\n    prometheus :9153\n    hosts {\n      $HOST_GW_IP host.minikube.internal\n      fallthrough\n    }\n    forward . /etc/resolv.conf {\n       max_concurrent 1000\n    }\n    cache 30\n    loop\n    reload\n    loadbalance\n}\n\"}}" > /dev/null
+    kubectl rollout restart deployment/coredns -n kube-system > /dev/null
+    print_success "host.minikube.internal patched to $HOST_GW_IP; CoreDNS restarted"
+else
+    print_warning "Could not detect host gateway IP; skipping DNS patch"
+fi
+
 # Step 1: Reconfigure Vault Kubernetes Auth (ROOT CAUSE FIX)
 print_section "Step 1: Reconfiguring Vault Kubernetes Auth"
 echo "This fixes the root cause: stale Kubernetes credentials in Vault after reboot"

@@ -202,23 +202,8 @@ def chat():
         return jsonify({'error': 'Message is required'}), 400
     
     try:
-        import jwt as pyjwt
-        from datetime import timezone
         user_id = session.get('user_id')
-
-        # Refresh the JWT if it has expired or is close to expiry (within 5 minutes)
         token = session.get('token')
-        try:
-            claims = pyjwt.decode(token, options={"verify_signature": False})
-            exp = claims.get('exp', 0)
-            now = datetime.now(timezone.utc).timestamp()
-            if exp - now < 300:  # less than 5 minutes remaining
-                token = generate_jwt_token(user_id, session.get('groups', []))
-                session['token'] = token
-        except Exception:
-            # If we can't decode the token at all, regenerate it
-            token = generate_jwt_token(user_id, session.get('groups', []))
-            session['token'] = token
         
         # Call AI agent with token in body (as expected by FastAPI model)
         response = requests.post(
@@ -1380,6 +1365,8 @@ HTML_TEMPLATE = '''
                     data.logs.forEach(log => {
                         const logDiv = document.createElement('div');
                         logDiv.className = 'log-entry';
+                        logDiv.style.cursor = 'pointer';
+                        logDiv.onclick = function() { openLogModal(this.textContent); };
                         logDiv.innerHTML = `
                             <div class="log-time">${new Date(log.timestamp).toLocaleString()}</div>
                             <div>
@@ -1415,6 +1402,8 @@ HTML_TEMPLATE = '''
                     data.logs.forEach(log => {
                         const logDiv = document.createElement('div');
                         logDiv.className = 'db-log-entry';
+                        logDiv.style.cursor = 'pointer';
+                        logDiv.onclick = function() { openLogModal(this.textContent); };
                         logDiv.innerHTML = `
                             <div class="db-log-time">${new Date(log.timestamp).toLocaleString()}</div>
                             <div>
@@ -1493,6 +1482,8 @@ HTML_TEMPLATE = '''
                     data.logs.forEach(log => {
                         const logDiv = document.createElement('div');
                         logDiv.className = 'raw-log-entry';
+                        logDiv.style.cursor = 'pointer';
+                        logDiv.onclick = function() { openLogModal(this.innerHTML); };
                         logDiv.innerHTML = syntaxHighlightJSON(log);
                         logsDiv.appendChild(logDiv);
                     });
@@ -1524,6 +1515,8 @@ HTML_TEMPLATE = '''
 
                     const claimDiv = document.createElement('div');
                     claimDiv.className = 'raw-log-entry';
+                    claimDiv.style.cursor = 'pointer';
+                    claimDiv.onclick = function() { openLogModal(this.innerHTML); };
                     claimDiv.innerHTML = syntaxHighlightJSON(jwtView);
                     claimsDiv.appendChild(claimDiv);
                 })
@@ -1606,6 +1599,24 @@ HTML_TEMPLATE = '''
             }, 5000);  // Poll every 5 seconds
         }
     </script>
+<div id="log-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:1000;justify-content:center;align-items:center;">
+  <div id="log-modal-box" style="background:#1a1a1a;border:1px solid #444;border-radius:6px;padding:20px;max-width:80%;max-height:80vh;overflow:auto;position:relative;">
+    <button onclick="closeLogModal()" style="position:absolute;top:8px;right:12px;background:none;border:none;color:#fff;font-size:18px;cursor:pointer;">✕</button>
+    <pre id="log-modal-content" style="font-size:120%;white-space:pre-wrap;word-break:break-all;margin:0;padding-top:10px;"></pre>
+  </div>
+</div>
+<script>
+function openLogModal(text) {
+  document.getElementById('log-modal-content').innerHTML = text;
+  var m = document.getElementById('log-modal');
+  m.style.display = 'flex';
+}
+function closeLogModal() {
+  document.getElementById('log-modal').style.display = 'none';
+}
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeLogModal(); });
+document.getElementById('log-modal').addEventListener('click', function(e) { if (e.target === this) closeLogModal(); });
+</script>
 </body>
 </html>
 '''

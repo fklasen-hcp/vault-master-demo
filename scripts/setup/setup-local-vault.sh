@@ -16,8 +16,9 @@ if [ -z "$VAULT_ADDR" ]; then
 fi
 
 if [ -z "$VAULT_TOKEN" ]; then
-    echo -e "${RED}ERROR: VAULT_TOKEN is not set. Please set it to your Vault root token or appropriate token.${NC}"
-    echo "Example: export VAULT_TOKEN=your-token-here"
+    echo -e "${RED}ERROR: VAULT_TOKEN is not set.${NC}"
+    echo "Source it from your init file:"
+    echo "  export VAULT_TOKEN=\$(cat ~/vault-init.json | jq -r '.root_token')"
     exit 1
 fi
 
@@ -35,6 +36,15 @@ if ! vault status > /dev/null 2>&1; then
 fi
 
 echo -e "${GREEN}✓ Vault is accessible and unsealed${NC}"
+
+# Fail fast if the token is expired or invalid
+if ! vault token lookup > /dev/null 2>&1; then
+    echo -e "${RED}ERROR: VAULT_TOKEN is invalid or expired.${NC}"
+    echo "Refresh it with:"
+    echo "  export VAULT_TOKEN=\$(cat ~/vault-init.json | jq -r '.root_token')"
+    exit 1
+fi
+echo -e "${GREEN}✓ VAULT_TOKEN is valid${NC}"
 
 # Create and use master-demo namespace
 echo -e "\n${GREEN}Creating master-demo namespace...${NC}"
@@ -94,7 +104,7 @@ if vault auth enable -path master-demo-auth kubernetes 2>/dev/null; then
 else
     echo "Auth method already enabled or failed to enable"
     # Check if it exists
-    if vault auth list | grep -q "master-demo-auth"; then
+    if VAULT_NAMESPACE=master-demo vault auth list | grep -q "master-demo-auth"; then
         echo "✓ Auth method exists"
     else
         echo -e "${RED}ERROR: Failed to enable Kubernetes auth method${NC}"
